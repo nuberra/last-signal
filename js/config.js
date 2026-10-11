@@ -2,8 +2,8 @@
    Leere SUPABASE_URL = Demo-Modus: alles bleibt im Browser, Synchronisation nur
    zwischen Tabs desselben Geräts. Gut zum Ausprobieren, nicht für das Spiel. */
 export const CONFIG = {
-  SUPABASE_URL: '',        // z.B. 'https://abcdefgh.supabase.co'
-  SUPABASE_ANON_KEY: '',   // Project Settings -> API -> anon public
+  SUPABASE_URL: 'https://wptcoucdhxgwvbjtwtra.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwdGNvdWNkaHhnd3ZianR3dHJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NDQwNDAsImV4cCI6MjEwNzMyMDA0MH0.gIitSYHNNUzm6H-x5vinnvlp0UO57C_OScdpDL-Qvqg', // anon public
   VAPID_PUBLIC_KEY: '',    // optional, für Push. Siehe README.
 
   /* Passwort der Jäger-Ansicht. Reine Zugangssperre im Browser. */
