@@ -249,3 +249,58 @@ body.hunter #toasts { top: auto; bottom: calc(72px + var(--safe-bottom)); flex-d
   body.desk .export-text { min-height: calc(100dvh - 260px); }
   body.desk .pcard .d-s { font-size: 32px; }
 }
+
+/* ---- Ortsmarken: Wortlabels statt Icons ---- */
+.ls-poi { width: 0; height: 0; }
+.poi, .chip { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap; font-family: var(--font-mono); line-height: 1; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.poi { display: flex; align-items: stretch; border: 2px solid var(--ink); background: var(--bone); color: var(--ink); font-size: 13px; }
+.poi b { font-weight: 400; padding: 5px 6px; background: var(--ink); color: var(--bone); font-variant-numeric: tabular-nums; }
+.poi span { padding: 5px 6px; display: none; }
+.poi em { font-style: normal; display: none; position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bone); border: 1px solid var(--ash-26); padding: 3px 6px; font-size: 11px; }
+.z-mid .poi span { display: block; }
+.z-near .poi em { display: block; }
+.poi-termine { border-color: var(--bone); background: var(--ink); color: var(--bone); font-size: 15px; outline: 2px solid var(--ink); }
+.poi-termine b { background: var(--bone); color: var(--ink); }
+.poi-mcd, .poi-malls, .poi-lego { background: var(--ink); color: var(--bone); border-color: var(--bone); }
+.poi-mcd b, .poi-malls b, .poi-lego b { background: var(--bone); color: var(--ink); }
+.poi-done { opacity: 0.35; }
+.poi-done b { text-decoration: line-through; }
+
+.chip { border: 2px solid var(--ink); padding: 3px 5px; font-size: 11px; background: var(--bone); color: var(--ink); }
+.chip-st { background: var(--ink); color: var(--bone); border-color: var(--bone); border-width: 1px; padding: 2px 4px; }
+.chip-hot { background: var(--bone); color: var(--ink); border: 2px solid var(--ink); outline: 2px solid var(--bone); font-size: 12px; padding: 3px 6px; }
+.chip-sm { font-size: 9px; padding: 1px 3px; border-width: 1px; }
+.chip-gym { background: var(--bone); }
+.chip-play { background: var(--ink); color: var(--bone); border-color: var(--bone); }
+.chip-cafe { background: var(--ash); color: var(--ink); }
+.chip-apo { background: var(--ink); color: var(--ash); border-color: var(--ash); }
+.chip-car { background: var(--steel); color: var(--ink); border: 2px solid var(--ink); font-size: 13px; padding: 5px 8px; outline: 2px solid var(--steel); }
+.tiles-light .chip-st { background: var(--bone); color: var(--ink); border-color: var(--ink); }
+
+/* ---- Ebenen-Menue ---- */
+.layer-row .name small { display: block; font-size: 10px; letter-spacing: 0.08em; color: var(--ash); margin-top: 2px; }
+.lsub { padding: 10px 16px 6px; border-bottom: 1px solid var(--ash-26); }
+
+/* ---- Lage ---- */
+.lage-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px; align-items: baseline; padding: 4px 0; }
+.lage-row .value { font-size: 13px; }
+.lage-row a.label { color: var(--bone); }
+.hot-row { display: grid; grid-template-columns: 32px 1fr 64px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--ash-26); cursor: pointer; }
+.hot-rank { font-size: 18px; color: var(--ash); }
+.hot-bar { height: 8px; background: var(--ash-12); position: relative; }
+.hot-bar i { position: absolute; inset: 0 auto 0 0; background: var(--bone); }
+@media (hover: hover) { .hot-row:hover { background: var(--ash-12); } }
+
+.mobile-tabs, .side-tabs { grid-template-columns: repeat(4, 1fr); }
+.tabs button { font-size: 11px; letter-spacing: 0.1em; }
+
+/* Jaeger mobil: Kopfzeile einzeilig, mehr Platz fuer die Karte */
+@media (max-width: 1023px) {
+  .hunter .app-head { padding-top: calc(6px + var(--safe-top)); padding-bottom: 6px; }
+  .hunter .app-head .brand { font-size: 22px; white-space: nowrap; }
+  .hunter .app-head .btn.small { min-height: 32px; padding: 4px 8px; font-size: 10px; white-space: nowrap; }
+  .hunter .app-head .status span:last-child { display: none; }
+  .hunter .map-tools .btn { min-height: 36px; padding: 6px 10px; font-size: 11px; }
+  .hunter .sheet-handle { padding: 10px 16px; }
+  .hunter .sheet-handle #sheet-sum { color: var(--bone); }
+}

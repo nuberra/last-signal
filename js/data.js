@@ -49,36 +49,49 @@ export const APPOINTMENTS = [
   },
 ];
 
+/* Feste Orte. tag = Kurzwort auf der Karte, tasks = Aufgaben, die dort erledigt werden.
+   Sind alle Aufgaben eines Orts erledigt, wird er auf der Karte zurueckgenommen. */
 export const POI_CATEGORIES = [
-  { id: 'termine', label: 'Pflichttermine', items: APPOINTMENTS.map((a) => ({ name: a.place, lat: a.lat, lng: a.lng })) },
-  { id: 'museen', label: 'Museen', items: [
-    { name: 'Mercedes-Benz Museum', lat: 48.78815, lng: 9.23398 },
-    { name: 'Porsche Museum', lat: 48.83421, lng: 9.15255 },
-    { name: 'SchweineMuseum', lat: 48.78581, lng: 9.21999 },
+  { id: 'termine', label: 'Pflichttermine', tag: 'TERMIN', items: APPOINTMENTS.map((a) => ({ name: a.place, lat: a.lat, lng: a.lng, tasks: [a.id], code: 'T' + a.n })) },
+  { id: 'museen', label: 'Museen', tag: 'MUSEUM', items: [
+    { name: 'Mercedes-Benz Museum', lat: 48.78815, lng: 9.23398, tasks: ['t02'] },
+    { name: 'Porsche Museum', lat: 48.83421, lng: 9.15255, tasks: ['t03'] },
+    { name: 'SchweineMuseum', lat: 48.78581, lng: 9.21999, tasks: ['t04'] },
   ] },
-  { id: 'casino', label: 'Casino', items: [
-    { name: 'Spielbank Stuttgart', lat: 48.72286, lng: 9.16055 },
+  { id: 'casino', label: 'Casino', tag: 'CASINO', items: [
+    { name: 'Spielbank Stuttgart', lat: 48.72286, lng: 9.16055, tasks: ['t15'] },
   ] },
-  { id: 'malls', label: 'Einkaufszentren', items: [
-    { name: 'Milaneo', lat: 48.79122, lng: 9.18320 },
-    { name: 'Das Gerber', lat: 48.77236, lng: 9.17231 },
+  { id: 'malls', label: 'Einkaufszentren', tag: 'MALL', items: [
+    { name: 'Milaneo', lat: 48.79122, lng: 9.18320, tasks: ['t24'] },
+    { name: 'Das Gerber', lat: 48.77236, lng: 9.17231, tasks: ['t24'] },
   ] },
-  { id: 'mcd', label: "McDonald's", items: [
-    { name: "McDonald's Königstrasse 17", lat: 48.77723, lng: 9.17733 },
-    { name: "McDonald's Marienstrasse 12", lat: 48.77342, lng: 9.17316 },
-    { name: "McDonald's Bahnhofstrasse 30 (Bad Cannstatt)", lat: 48.80176, lng: 9.21736 },
-    { name: "McDonald's Mailänder Platz 7", lat: 48.79086, lng: 9.18382 },
+  { id: 'mcd', label: "McDonald's", tag: 'MCD', items: [
+    { name: "McDonald's Königstrasse 17", lat: 48.77723, lng: 9.17733, tasks: ['t16'] },
+    { name: "McDonald's Marienstrasse 12", lat: 48.77342, lng: 9.17316, tasks: ['t16'] },
+    { name: "McDonald's Bahnhofstrasse 30 (Bad Cannstatt)", lat: 48.80176, lng: 9.21736, tasks: ['t16'] },
+    { name: "McDonald's Mailänder Platz 7", lat: 48.79086, lng: 9.18382, tasks: ['t16'] },
   ] },
-  { id: 'lego', label: 'Lego Store', items: [
-    { name: 'Lego Store Königstrasse 43B', lat: 48.77438, lng: 9.17482 },
+  { id: 'lego', label: 'Lego Store', tag: 'LEGO', items: [
+    { name: 'Lego Store Königstrasse 43B', lat: 48.77438, lng: 9.17482, tasks: ['t23'] },
   ] },
-  { id: 'foto', label: 'Fotopunkte', items: [
-    { name: 'Neues Schloss', lat: 48.77797, lng: 9.18187 },
-    { name: 'Fernsehturm', lat: 48.75586, lng: 9.19011 },
-    { name: 'Hauptbahnhof', lat: 48.78417, lng: 9.17892 },
-    { name: 'Max-Eyth-See', lat: 48.83510, lng: 9.21687 },
-    { name: 'MHP Arena (Stadion)', lat: 48.79226, lng: 9.23208 },
+  { id: 'foto', label: 'Fotopunkte', tag: 'FOTO', items: [
+    { name: 'Neues Schloss', lat: 48.77797, lng: 9.18187, tasks: ['t01'] },
+    { name: 'Fernsehturm', lat: 48.75586, lng: 9.19011, tasks: ['t07', 't08'] },
+    { name: 'Hauptbahnhof Gleis 9', lat: 48.78417, lng: 9.17892, tasks: ['t14'] },
+    { name: 'Max-Eyth-See', lat: 48.83510, lng: 9.21687, tasks: ['t06'] },
+    { name: 'MHP Arena (Stadion)', lat: 48.79226, lng: 9.23208, tasks: ['t05'] },
   ] },
+];
+
+/* Live aus OpenStreetMap (Overpass) geladene Ebenen. Viele Punkte, daher ohne Alarm
+   und erst ab Zoomstufe minZoom sichtbar. */
+export const BBOX = [48.690, 9.030, 48.870, 9.320];
+export const LIVE_LAYERS = [
+  { id: 'oepnv', label: 'S-Bahn / Stadtbahn', tag: 'S/U', minZoom: 12, tasks: [] },
+  { id: 'gym', label: 'Gyms', tag: 'GYM', minZoom: 13, tasks: ['t19'] },
+  { id: 'spielplatz', label: 'Spielplätze', tag: 'SPIEL', minZoom: 14, tasks: ['t20'] },
+  { id: 'cafe', label: 'Cafés', tag: 'CAFE', minZoom: 15, tasks: ['t17', 't18'] },
+  { id: 'apotheke', label: 'Apotheken', tag: 'APO', minZoom: 15, tasks: ['t24'] },
 ];
 
 export const ALERT_RADIUS_M = 500;

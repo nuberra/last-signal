@@ -1,8 +1,8 @@
 /* LAST SIGNAL — Service Worker: App-Schale offline, Push fuer die Jaeger. */
-const CACHE = 'ls-v4';
+const CACHE = 'ls-v5';
 const SHELL = [
   '/', '/index.html', '/jaeger.html', '/css/app.css',
-  '/js/config.js', '/js/store.js', '/js/common.js', '/js/data.js', '/js/bandits.js', '/js/detectives.js',
+  '/js/config.js', '/js/store.js', '/js/common.js', '/js/data.js', '/js/bandits.js', '/js/detectives.js', '/js/osm.js',
   '/vendor/supabase.js', '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css',
   '/fonts/SuperStamped.ttf', '/fonts/ibm-plex-mono-latin-400-normal.woff2', '/icons/pin.svg',
 ];

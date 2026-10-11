@@ -78,17 +78,30 @@ function startGeo() {
       if (hadError) renderSignal();
     },
     (e) => { state.geoError = e.code === 1 ? 'STANDORT NICHT ERLAUBT. IN DEN EINSTELLUNGEN FREIGEBEN.' : 'KEIN GPS-SIGNAL'; renderSignal(); },
-    { enableHighAccuracy: true, maximumAge: 20000, timeout: 30000 },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
   );
 }
 
-function freshFix() {
-  if (state.fix && Date.now() - state.fix.ts < 45000) return Promise.resolve(state.fix);
-  return new Promise((res, rej) => navigator.geolocation.getCurrentPosition(
-    (p) => { state.fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, ts: Date.now() }; res(state.fix); },
-    (e) => rej(e),
-    { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 },
-  ));
+/* Genaue Position: bis zu 15 s auf eine GPS-Messung mit <= 25 m warten und die beste
+   Messung aus diesem Fenster nehmen. Grobe WLAN-/Funkzellen-Werte werden so vermieden. */
+const GOOD_ACC = 25;
+function freshFix(maxWait = 15000) {
+  if (state.fix && Date.now() - state.fix.ts < 15000 && state.fix.accuracy <= GOOD_ACC) return Promise.resolve(state.fix);
+  return new Promise((res, rej) => {
+    let best = state.fix && Date.now() - state.fix.ts < 60000 ? state.fix : null;
+    let done = false;
+    const finish = (err) => {
+      if (done) return; done = true;
+      navigator.geolocation.clearWatch(id); clearTimeout(timer);
+      if (best) { state.fix = best; res(best); } else rej(err || { code: 2 });
+    };
+    const id = navigator.geolocation.watchPosition((p) => {
+      const f = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, ts: Date.now() };
+      if (!best || f.accuracy < best.accuracy || Date.now() - best.ts > 60000) best = f;
+      if (f.accuracy <= GOOD_ACC) finish();
+    }, (e) => { if (e.code === 1) finish(e); }, { enableHighAccuracy: true, maximumAge: 0, timeout: maxWait });
+    const timer = setTimeout(() => finish(), maxWait);
+  });
 }
 
 const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch { return []; } };
@@ -226,7 +239,7 @@ function renderSignal() {
       <span class="label">Position</span>
       <span class="value">${ls ? formatCoordinate(ls.lat, ls.lng) : '-'}</span>
       <span class="label">Genauigkeit</span>
-      <span class="value">${ls ? ls.accuracy + ' M' : '-'}</span>
+      <span class="value">${ls ? '±' + ls.accuracy + ' M' : '-'}${state.fix && !state.sending ? ' · JETZT ±' + Math.round(state.fix.accuracy) + ' M' : ''}</span>
       <span class="label">Nächster</span>
       <span class="value" id="next">${state.sending ? 'SENDET' : pad2(Math.floor(left / 60)) + ':' + pad2(left % 60)}</span>
       ${q ? `<span class="label">Wartend</span><span class="value">${q} OHNE NETZ</span>` : ''}

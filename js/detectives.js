@@ -1,7 +1,8 @@
 /* LAST SIGNAL — Ansicht der Jäger. Karte, Aufgaben, Export. */
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
-import { TASKS, APPOINTMENTS, POI_CATEGORIES, ALERT_RADIUS_M } from './data.js';
+import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M } from './data.js';
+import { loadOsm, cachedOsm } from './osm.js';
 import {
   $, esc, pad2, formatCoordinate, distanceM, formatDistance, timeHM, agoText, toast, beep, unlockAudio,
   registerSW, statusText, playerName, playerColor, pushSupported, enablePush, pushActive,
@@ -13,8 +14,9 @@ const PREF_KEY = 'ls-hunter-prefs';
 const STALE_MIN = 30;
 const root = $('#root');
 
-let prefs = { layers: Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), rings: true, tiles: 'dark', route: 'all', sheet: true };
-try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem(PREF_KEY)) }; prefs.layers = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), ...prefs.layers }; } catch { /* Standard */ }
+const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false };
+let prefs = { layers: { ...DEFAULT_LAYERS }, rings: true, reach: true, tiles: 'dark', route: 'all', sheet: false };
+try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 const savePrefs = () => localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
 
 const state = {
@@ -31,6 +33,10 @@ const state = {
   unseenTasks: 0,
   soundOn: false,
   push: false,
+  me: null,           // eigener Standort {lat,lng,acc,ts}
+  placingCar: false,
+  osm: null,
+  osmStatus: '',
 };
 
 const BANDIT_IDS = () => {
@@ -40,7 +46,7 @@ const BANDIT_IDS = () => {
 };
 const latest = (id) => { const a = state.locs[id]; return a && a.length ? a[a.length - 1] : null; };
 const allPois = () => POI_CATEGORIES.flatMap((c) => c.items.map((it) => ({ ...it, cat: c.id, catLabel: c.label, key: c.id + ':' + it.name })));
-const visiblePois = () => allPois().filter((p) => prefs.layers[p.cat]);
+const visiblePois = () => allPois().filter((p) => prefs.layers[p.cat] && !poiDone(p));
 
 registerSW();
 
@@ -94,6 +100,7 @@ function renderShell() {
           <button class="btn" id="b-layers">Ebenen</button>
           <button class="btn" id="b-fit">Alle</button>
           <button class="btn" id="b-me">Ich</button>
+          <button class="btn" id="b-car">Auto</button>
           <button class="btn" id="b-tiles"></button>
         </div>
         <div class="layers" id="layers" hidden></div>
@@ -107,16 +114,19 @@ function renderShell() {
       <aside class="side">
         <nav class="tabs side-tabs">
           <button data-tab="bandits">Bandits</button>
+          <button data-tab="lage">Lage</button>
           <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
           <button data-tab="export">Export</button>
         </nav>
         <div class="view scroll" id="v-bandits" hidden><div class="wrap" id="bandits-wrap"></div></div>
+        <div class="view scroll" id="v-lage" hidden><div class="wrap" id="lage-wrap"></div></div>
         <div class="view scroll" id="v-tasks" hidden><div class="wrap" id="tasks-wrap"></div></div>
         <div class="view scroll" id="v-export" hidden><div class="wrap" id="export-wrap"></div></div>
       </aside>
       </div>
       <nav class="tabs mobile-tabs">
         <button data-tab="map">Karte</button>
+        <button data-tab="lage">Lage</button>
         <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
         <button data-tab="export">Export</button>
       </nav>
@@ -126,7 +136,12 @@ function renderShell() {
   $('#b-layers').onclick = () => { const el = $('#layers'); el.hidden = !el.hidden; $('#b-layers').classList.toggle('on', !el.hidden); };
   $('#b-fit').onclick = fitAll;
   $('#b-me').onclick = toggleMe;
-  $('#b-tiles').onclick = () => { prefs.tiles = prefs.tiles === 'dark' ? 'light' : 'dark'; savePrefs(); applyTiles(); };
+  $('#b-tiles').onclick = () => { prefs.tiles = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length]; savePrefs(); applyTiles(); };
+  $('#b-car').onclick = () => {
+    state.placingCar = !state.placingCar;
+    $('#b-car').classList.toggle('on', state.placingCar);
+    if (state.placingCar) toast('Auto', 'Auf die Karte tippen, wo das Auto steht', 'detective');
+  };
   $('#sound').onclick = () => { unlockAudio(); state.soundOn = true; beep('task'); renderSound(); };
   $('#push').onclick = async () => {
     try {
@@ -161,8 +176,10 @@ function setTab(tab) {
   root.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   $('#v-map').hidden = !state.desk && tab !== 'map';
   $('#v-bandits').hidden = tab !== 'bandits';
+  $('#v-lage').hidden = tab !== 'lage';
   $('#v-tasks').hidden = tab !== 'tasks';
   $('#v-export').hidden = tab !== 'export';
+  if (tab === 'lage') renderLage();
   if (tab === 'map') setTimeout(() => map.invalidateSize(), 0);
   if (tab === 'bandits') renderCards();
   if (tab === 'tasks') { state.unseenTasks = 0; renderBadge(); renderTasks(); }
@@ -185,11 +202,20 @@ function renderBadge() {
 
 /* ===================== Karte ===================== */
 
-let map, tiles, poiGroups = {}, ringGroup, playerLayers = {}, meMarker = null, meWatch = null;
+let map, tiles, poiGroups = {}, poiMarkers = [], ringGroup, liveGroups = {}, playerLayers = {};
+let meMarker = null, meCircle = null, meWatch = null, carMarker = null;
+const canvas = () => (canvas.r ||= L.canvas({ padding: 0.3 }));
 const TILES = {
-  dark: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', opt: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' } },
-  light: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opt: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' } },
+  dark: { label: 'Dunkel', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', opt: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' } },
+  light: { label: 'Hell', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opt: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' } },
+  transit: { label: 'ÖPNV', url: 'https://tile.memomaps.de/tilegen/{z}/{x}/{y}.png', opt: { maxZoom: 18, attribution: 'Karte <a href="https://memomaps.de/">memomaps.de</a> CC-BY-SA, Daten &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' } },
 };
+const TILE_ORDER = ['dark', 'light', 'transit'];
+const lineColor = () => (prefs.tiles === 'dark' ? '#F0EBE1' : '#0C0C0E');
+
+const taskCode = (id) => id.replace(/^t/, '');
+const poiDone = (it) => it.tasks.length > 0 && it.tasks.every(isDone);
+const openPois = () => allPois().filter((p) => !poiDone(p));
 
 function sqIcon(size, fill, border, cls = '') {
   return L.divIcon({
@@ -199,86 +225,268 @@ function sqIcon(size, fill, border, cls = '') {
   });
 }
 
+/* Ortsmarke: Nummer der Aufgabe + Kurzwort, Name ab Zoom 16. Keine Icons, nur Wortlabels. */
+function poiIcon(c, it) {
+  const code = it.code || it.tasks.map(taskCode).join(' ');
+  return L.divIcon({
+    className: 'ls-poi',
+    html: `<div class="poi poi-${c.id} ${poiDone(it) ? 'poi-done' : ''}"><b>${esc(code)}</b><span>${esc(c.tag)}</span><em>${esc(it.name)}</em></div>`,
+    iconSize: [0, 0], iconAnchor: [0, 0],
+  });
+}
+
+function chipIcon(text, cls) {
+  return L.divIcon({ className: 'ls-poi', html: `<div class="chip ${cls}">${esc(text)}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+}
+
 function initMap() {
-  map = L.map('map', { zoomControl: false, attributionControl: true, preferCanvas: false }).setView([48.7784, 9.1800], 13);
+  map = L.map('map', { zoomControl: false, attributionControl: true }).setView([48.7784, 9.1800], 13);
   applyTiles();
   ringGroup = L.layerGroup().addTo(map);
   for (const c of POI_CATEGORIES) {
     const g = L.layerGroup();
     for (const it of c.items) {
-      const isAppt = c.id === 'termine';
-      const m = L.marker([it.lat, it.lng], {
-        icon: isAppt ? sqIcon(18, '#0C0C0E', '#F0EBE1') : sqIcon(12, '#F0EBE1', '#0C0C0E'),
-        zIndexOffset: isAppt ? 200 : 0,
-      });
-      m.bindTooltip(it.name, { className: 'ls-tip', direction: 'top', offset: [0, -8] });
+      const m = L.marker([it.lat, it.lng], { icon: poiIcon(c, it), zIndexOffset: c.id === 'termine' ? 400 : 200 });
       m.bindPopup(() => poiPopup(it, c));
+      m._ls = { c, it };
+      poiMarkers.push(m);
       g.addLayer(m);
     }
     poiGroups[c.id] = g;
   }
+  for (const l of LIVE_LAYERS) liveGroups[l.id] = L.layerGroup();
   applyLayers();
-  map.on('click', () => { $('#layers').hidden = true; $('#b-layers').classList.remove('on'); });
+  map.on('zoomend', () => { applyZoomClass(); applyLiveVisibility(); });
+  applyZoomClass();
+  map.on('click', (e) => {
+    $('#layers').hidden = true; $('#b-layers').classList.remove('on');
+    if (state.placingCar) { state.placingCar = false; $('#b-car').classList.remove('on'); setCar(e.latlng.lat, e.latlng.lng); }
+  });
+  /* Langes Druecken (mobil) oder Rechtsklick: Auto hier abstellen, Wege von hier */
+  map.on('contextmenu', (e) => {
+    const ll = e.latlng;
+    const pop = L.popup().setLatLng(ll).setContent(`<div class="label">${formatCoordinate(ll.lat, ll.lng)}</div>
+      <button class="btn small solid" style="margin-top:8px;width:100%" data-car-here>Auto hier abstellen</button>`).openOn(map);
+    setTimeout(() => { const b = pop.getElement() && pop.getElement().querySelector('[data-car-here]'); if (b) b.onclick = () => { map.closePopup(); setCar(ll.lat, ll.lng); }; }, 0);
+  });
+  loadLive(false);
+}
+
+function applyZoomClass() {
+  const z = map.getZoom();
+  const el = map.getContainer();
+  el.classList.toggle('z-mid', z >= 14);
+  el.classList.toggle('z-near', z >= 16);
 }
 
 function applyTiles() {
   if (tiles) map.removeLayer(tiles);
   const t = TILES[prefs.tiles] || TILES.dark;
   tiles = L.tileLayer(t.url, t.opt).addTo(map);
-  $('#b-tiles').textContent = prefs.tiles === 'dark' ? 'Hell' : 'Dunkel';
+  tiles.bringToBack();
+  const next = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length];
+  $('#b-tiles').textContent = TILES[next].label;
+  map.getContainer().classList.toggle('tiles-light', prefs.tiles !== 'dark');
+  applyLayers();
 }
 
 function poiPopup(it, c) {
   const rows = BANDIT_IDS().map((id) => {
     const l = latest(id); if (!l) return '';
-    const d = distanceM(l, it);
-    return `<div>${esc(playerName(state.players, id))}: ${formatDistance(d)}</div>`;
+    return `<div>${esc(playerName(state.players, id))}: ${formatDistance(distanceM(l, it))}</div>`;
   }).join('');
-  return `<div class="label">${esc(c.label)}</div><div style="margin:4px 0 8px;font-family:var(--font-display);font-size:22px;line-height:1;text-transform:uppercase">${esc(it.name)}</div><div class="muted">${formatCoordinate(it.lat, it.lng)}</div>${rows ? '<hr class="rule" style="margin:8px 0">' + rows : ''}`;
+  const car = carPos();
+  const from = state.me || car;
+  const tasks = it.tasks.map((t) => TASKS.find((x) => x.id === t) || APPOINTMENTS.find((x) => x.id === t)).filter(Boolean);
+  return `<div class="label">${esc(c.label)}</div>
+    <div style="margin:4px 0 8px;font-family:var(--font-display);font-size:22px;line-height:1;text-transform:uppercase">${esc(it.name)}</div>
+    ${tasks.map((t) => `<div class="muted">${pad2(t.n)} ${esc(t.title || t.place)} · ${isDone(t.id) ? 'ERLEDIGT' : 'OFFEN'}</div>`).join('')}
+    <div class="muted" style="margin-top:4px">${formatCoordinate(it.lat, it.lng)}</div>
+    ${rows ? '<hr class="rule" style="margin:8px 0">' + rows : ''}
+    ${car ? `<div>Auto: ca. ${driveMin(distanceM(car, it))} min · <a href="${gmaps(car, it, 'driving')}" target="_blank" rel="noopener">Route</a></div>` : ''}
+    ${from && !car ? `<div><a href="${gmaps(from, it, 'walking')}" target="_blank" rel="noopener">Route</a></div>` : ''}`;
 }
 
 function applyLayers() {
+  if (!ringGroup) return;
   ringGroup.clearLayers();
+  const hot = new Set([...state.inside].map((k) => k.split('|')[1]));
   for (const c of POI_CATEGORIES) {
     const on = !!prefs.layers[c.id];
     if (on && !map.hasLayer(poiGroups[c.id])) poiGroups[c.id].addTo(map);
     if (!on && map.hasLayer(poiGroups[c.id])) map.removeLayer(poiGroups[c.id]);
-    if (on && prefs.rings) {
-      for (const it of c.items) {
-        L.circle([it.lat, it.lng], { radius: ALERT_RADIUS_M, color: '#7A7A74', weight: 1, opacity: 0.6, dashArray: '4 6', fill: true, fillColor: '#7A7A74', fillOpacity: 0.06, interactive: false }).addTo(ringGroup);
-      }
+    if (!on || !prefs.rings) continue;
+    for (const it of c.items) {
+      if (poiDone(it)) continue;
+      const isHot = hot.has(c.id + ':' + it.name);
+      L.circle([it.lat, it.lng], {
+        radius: ALERT_RADIUS_M, color: isHot ? '#FF4D0F' : lineColor(), weight: isHot ? 3 : 1.5,
+        opacity: isHot ? 0.9 : 0.55, dashArray: isHot ? null : '6 6',
+        fill: true, fillColor: isHot ? '#FF4D0F' : lineColor(), fillOpacity: isHot ? 0.07 : 0.04, interactive: false,
+      }).addTo(ringGroup);
     }
+  }
+  applyLiveVisibility();
+}
+
+function refreshPoiIcons() {
+  for (const m of poiMarkers) m.setIcon(poiIcon(m._ls.c, m._ls.it));
+  applyLayers();
+}
+
+/* ---- Live-Ebenen aus OpenStreetMap ---- */
+
+async function loadLive(force) {
+  state.osmStatus = 'laedt';
+  renderLayers();
+  try {
+    state.osm = await loadOsm(force);
+    state.osmStatus = 'ok';
+    buildLive();
+  } catch (e) {
+    console.error(e);
+    state.osm = state.osm || cachedOsm();
+    state.osmStatus = 'fehler';
+    if (state.osm) buildLive();
+  }
+  renderLayers();
+  if (state.tab === 'lage') renderLage();
+}
+
+function buildLive() {
+  const o = state.osm; if (!o) return;
+  for (const l of LIVE_LAYERS) liveGroups[l.id].clearLayers();
+  const hotNames = new Set(hotspots().slice(0, 8).map((h) => h.st[2]));
+  for (const s of o.oepnv) {
+    const hot = hotNames.has(s[2]);
+    const m = L.marker([s[0], s[1]], { icon: chipIcon(s[3], 'chip-st' + (hot ? ' chip-hot' : '')), zIndexOffset: hot ? 300 : 100 });
+    m.bindTooltip(s[2] + ' · ' + s[3], { className: 'ls-tip', direction: 'top', offset: [0, -10] });
+    m.bindPopup(() => stationPopup(s));
+    liveGroups.oepnv.addLayer(m);
+  }
+  const dot = { gym: 'chip-gym', spielplatz: 'chip-play', cafe: 'chip-cafe', apotheke: 'chip-apo' };
+  for (const id of ['gym', 'spielplatz', 'cafe', 'apotheke']) {
+    const meta = LIVE_LAYERS.find((l) => l.id === id);
+    for (const p of o[id] || []) {
+      const m = L.marker([p[0], p[1]], { icon: chipIcon(meta.tag, 'chip-sm ' + dot[id]) });
+      m.bindTooltip(p[2], { className: 'ls-tip', direction: 'top', offset: [0, -8] });
+      liveGroups[id].addLayer(m);
+    }
+  }
+  applyLiveVisibility();
+}
+
+function applyLiveVisibility() {
+  if (!map) return;
+  const z = map.getZoom();
+  for (const l of LIVE_LAYERS) {
+    const show = !!prefs.layers[l.id] && z >= l.minZoom;
+    if (show && !map.hasLayer(liveGroups[l.id])) liveGroups[l.id].addTo(map);
+    if (!show && map.hasLayer(liveGroups[l.id])) map.removeLayer(liveGroups[l.id]);
   }
 }
 
+function stationPopup(s) {
+  const h = hotspots().find((x) => x.st[2] === s[2]);
+  const car = carPos();
+  return `<div class="label">Haltestelle ${esc(s[3])}</div>
+    <div style="margin:4px 0 8px;font-family:var(--font-display);font-size:22px;line-height:1;text-transform:uppercase">${esc(s[2])}</div>
+    ${h ? `<div class="muted">Offene Orte in 800 M: ${h.near.map((n) => esc(n.code)).join(', ')}</div>` : '<div class="muted">Keine offenen Orte in 800 M</div>'}
+    ${BANDIT_IDS().map((id) => { const l = latest(id); return l ? `<div>${esc(playerName(state.players, id))}: ${formatDistance(distanceM(l, { lat: s[0], lng: s[1] }))}</div>` : ''; }).join('')}
+    ${car ? `<div style="margin-top:4px">Auto: ca. ${driveMin(distanceM(car, { lat: s[0], lng: s[1] }))} min · <a href="${gmaps(car, { lat: s[0], lng: s[1] }, 'driving')}" target="_blank" rel="noopener">Route</a></div>` : ''}`;
+}
+
+/* Haltestellen, an denen die Gejagten am ehesten aussteigen: pro offener Aufgabe zaehlt
+   der naechste passende Ort innerhalb 800 m, je naeher desto mehr. Anstehende
+   Pflichttermine (naechste 4 Stunden) zaehlen doppelt. */
+const HOT_R = 800;
+function hotspots() {
+  const o = state.osm; if (!o) return [];
+  const now = Date.now();
+  const spots = openPois();
+  const res = [];
+  for (const st of o.oepnv) {
+    const pt = { lat: st[0], lng: st[1] };
+    const best = {};
+    for (const p of spots) {
+      const d = distanceM(pt, p); if (d > HOT_R) continue;
+      const appt = APPOINTMENTS.find((a) => p.tasks.includes(a.id));
+      const soon = appt && new Date(appt.start).getTime() - now < 4 * 3600e3 && new Date(appt.end).getTime() > now;
+      const w = (1 - d / HOT_R) * (soon ? 2 : 1);
+      const key = p.tasks.join(',');
+      if (!best[key] || best[key].w < w) best[key] = { w, d, code: (p.code || p.tasks.map(taskCode).join('/')) + ' ' + p.name, p };
+    }
+    const near = Object.values(best).sort((a, b) => a.d - b.d);
+    const score = near.reduce((s, n) => s + n.w, 0);
+    if (score > 0) res.push({ st, score, near });
+  }
+  return res.sort((a, b) => b.score - a.score);
+}
+
+function nearestStation(pt) {
+  const o = state.osm; if (!o || !o.oepnv.length || !pt) return null;
+  let best = null;
+  for (const s of o.oepnv) { const d = distanceM(pt, { lat: s[0], lng: s[1] }); if (!best || d < best.d) best = { s, d }; }
+  return best;
+}
+
+/* ---- Ebenen-Menue ---- */
+
 function renderLayers() {
   const el = $('#layers'); if (!el) return;
+  const row = (id, label, cnt, note = '') => `<div class="layer-row" data-layer="${id}"><input type="checkbox" class="check" ${prefs.layers[id] ? 'checked' : ''} tabindex="-1"><span class="name">${esc(label)}${note ? `<small>${esc(note)}</small>` : ''}</span><span class="cnt">${cnt}</span></div>`;
+  const o = state.osm;
   el.innerHTML = `
     <div class="lhead"><span class="label">Ebenen</span><button class="btn small quiet" id="l-close">Zu</button></div>
-    ${POI_CATEGORIES.map((c) => `<div class="layer-row" data-layer="${c.id}"><input type="checkbox" class="check" ${prefs.layers[c.id] ? 'checked' : ''} tabindex="-1"><span class="name">${esc(c.label)}</span><span class="cnt">${pad2(c.items.length)}</span></div>`).join('')}
-    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M</span></div>
+    <div class="lsub label">Feste Orte · mit Alarm</div>
+    ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length))).join('')}
+    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M<small>nur offene Orte</small></span></div>
+    <div class="lsub label">OpenStreetMap · ohne Alarm${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''}</div>
+    ${LIVE_LAYERS.map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom + (l.tasks.length ? ' · Aufgabe ' + l.tasks.map(taskCode).join('/') : ''))).join('')}
+    <div class="layer-row" data-reach="1"><input type="checkbox" class="check" ${prefs.reach ? 'checked' : ''} tabindex="-1"><span class="name">Reichweite seit Signal<small>${REACH_M_PER_MIN} M pro Minute</small></span></div>
     <div style="padding:12px 16px">
       <div class="label" style="margin-bottom:8px">Route</div>
       <div class="seg">${[['1h', '1 H'], ['6h', '6 H'], ['all', 'Alles'], ['none', 'Aus']].map(([k, t]) => `<button class="btn ${prefs.route === k ? 'on' : ''}" data-route="${k}">${t}</button>`).join('')}</div>
-      <div class="label" style="margin-top:12px">Alarm nur für eingeblendete Ebenen.</div>
     </div>
-    <div style="padding:0 16px 12px" class="btn-row"><button class="btn small quiet" data-all="1">Alle an</button><button class="btn small quiet" data-all="0">Alle aus</button></div>`;
+    <div style="padding:0 16px 12px" class="btn-row"><button class="btn small quiet" data-all="1">Alle an</button><button class="btn small quiet" data-all="0">Alle aus</button><button class="btn small quiet" id="l-reload">OSM neu</button></div>`;
   $('#l-close').onclick = () => { el.hidden = true; $('#b-layers').classList.remove('on'); };
   el.querySelectorAll('[data-layer]').forEach((r) => r.onclick = () => {
     prefs.layers[r.dataset.layer] = !prefs.layers[r.dataset.layer]; savePrefs();
     applyLayers(); renderLayers(); evaluateProximity(true); renderCards();
   });
   el.querySelector('[data-rings]').onclick = () => { prefs.rings = !prefs.rings; savePrefs(); applyLayers(); renderLayers(); };
+  el.querySelector('[data-reach]').onclick = () => { prefs.reach = !prefs.reach; savePrefs(); drawPlayers(); renderLayers(); };
   el.querySelectorAll('[data-route]').forEach((b) => b.onclick = () => { prefs.route = b.dataset.route; savePrefs(); renderLayers(); drawPlayers(); });
   el.querySelectorAll('[data-all]').forEach((b) => b.onclick = () => {
-    POI_CATEGORIES.forEach((c) => prefs.layers[c.id] = b.dataset.all === '1'); savePrefs();
+    [...POI_CATEGORIES, ...LIVE_LAYERS].forEach((c) => prefs.layers[c.id] = b.dataset.all === '1'); savePrefs();
     applyLayers(); renderLayers(); evaluateProximity(true); renderCards();
   });
+  $('#l-reload').onclick = () => loadLive(true);
 }
 
 function routeSince() {
   const now = Date.now();
   return { '1h': now - 3600e3, '6h': now - 6 * 3600e3, all: 0, none: Infinity }[prefs.route] ?? 0;
+}
+
+/* ---- Gejagte ---- */
+
+/* Annahme fuer die Reichweite: OEPNV mit Umsteigen und Warten im Schnitt ~12 km/h. */
+const REACH_M_PER_MIN = 200;
+const ageMin = (l) => (Date.now() - new Date(l.created_at).getTime()) / 60000;
+
+function motion(id) {
+  const pts = state.locs[id] || [];
+  if (pts.length < 2) return null;
+  const b = pts[pts.length - 1];
+  for (let i = pts.length - 2; i >= 0; i--) {
+    const a = pts[i];
+    const mins = (new Date(b.created_at) - new Date(a.created_at)) / 60000;
+    if (mins > 45) return null;
+    const d = distanceM(a, b);
+    if (d >= 60 && mins >= 2) { const kmh = (d / 1000) / (mins / 60); return kmh < 150 ? { dir: bearing(a, b), kmh, mins } : null; }
+  }
+  return null;
 }
 
 function drawPlayers() {
@@ -290,6 +498,8 @@ function drawPlayers() {
     let pl = playerLayers[id];
     if (!pl) {
       pl = playerLayers[id] = {
+        reach: L.circle([0, 0], { radius: 1, color, weight: 1.5, opacity: 0.7, dashArray: '2 6', fill: true, fillColor: color, fillOpacity: 0.04, interactive: false }),
+        acc: L.circle([0, 0], { radius: 1, color, weight: 1, opacity: 0.8, fill: true, fillColor: color, fillOpacity: 0.15, interactive: false }),
         route: L.polyline([], { color, weight: 3, opacity: 0.85, lineJoin: 'miter' }).addTo(map),
         dots: L.layerGroup().addTo(map),
         marker: null,
@@ -299,21 +509,27 @@ function drawPlayers() {
     pl.route.setLatLngs(shown.map((p) => [p.lat, p.lng]));
     pl.dots.clearLayers();
     shown.slice(0, -1).forEach((p) => {
-      L.circleMarker([p.lat, p.lng], { radius: 3, color: '#0C0C0E', weight: 1, fillColor: color, fillOpacity: 1 })
-        .bindTooltip(timeHM(p.created_at), { className: 'ls-tip' }).addTo(pl.dots);
+      L.circleMarker([p.lat, p.lng], { renderer: canvas(), radius: 4, color: '#0C0C0E', weight: 1, fillColor: color, fillOpacity: 1 })
+        .bindTooltip(timeHM(p.created_at) + (p.source === 'owntracks' ? ' · OT' : ''), { className: 'ls-tip' }).addTo(pl.dots);
     });
     const l = latest(id);
-    if (!l) { if (pl.marker) { map.removeLayer(pl.marker); pl.marker = null; } continue; }
-    const stale = Date.now() - new Date(l.created_at).getTime() > STALE_MIN * 60e3;
+    if (!l) { if (pl.marker) { map.removeLayer(pl.marker); pl.marker = null; } map.removeLayer(pl.reach); map.removeLayer(pl.acc); continue; }
+    const age = ageMin(l);
+    const reachR = Math.min(age * REACH_M_PER_MIN, 10000);
+    if (prefs.reach && age >= 2) { pl.reach.setLatLng([l.lat, l.lng]).setRadius(reachR); if (!map.hasLayer(pl.reach)) pl.reach.addTo(map); }
+    else map.removeLayer(pl.reach);
+    if (l.accuracy && l.accuracy > 10) { pl.acc.setLatLng([l.lat, l.lng]).setRadius(l.accuracy); if (!map.hasLayer(pl.acc)) pl.acc.addTo(map); }
+    else map.removeLayer(pl.acc);
+    const stale = age > STALE_MIN;
     const icon = L.divIcon({
       className: 'ls-player' + (stale ? ' stale' : ''),
-      html: `<div style="position:relative;width:22px;height:22px;color:${color}"><div class="pulse"></div><div class="core" style="background:${color}"></div></div>`,
-      iconSize: [22, 22], iconAnchor: [11, 11],
+      html: `<div style="position:relative;width:26px;height:26px;color:${color}"><div class="pulse"></div><div class="core" style="background:${color}"></div></div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13],
     });
     const tip = `${esc(playerName(state.players, id))} <span style="font-family:var(--font-mono);font-size:11px;color:var(--ash)">${timeHM(l.created_at)}</span>`;
     if (!pl.marker) {
       pl.marker = L.marker([l.lat, l.lng], { icon, zIndexOffset: 1000 }).addTo(map);
-      pl.marker.bindTooltip(tip, { permanent: true, direction: 'right', offset: [14, 0], className: 'ls-tip player' });
+      pl.marker.bindTooltip(tip, { permanent: true, direction: 'right', offset: [16, 0], className: 'ls-tip player' });
     } else {
       pl.marker.setLatLng([l.lat, l.lng]); pl.marker.setIcon(icon); pl.marker.setTooltipContent(tip);
     }
@@ -322,30 +538,88 @@ function drawPlayers() {
 
 function fitAll() {
   const pts = BANDIT_IDS().map(latest).filter(Boolean).map((l) => [l.lat, l.lng]);
-  if (meMarker) pts.push(meMarker.getLatLng());
+  if (state.me) pts.push([state.me.lat, state.me.lng]);
+  const car = carPos(); if (car) pts.push([car.lat, car.lng]);
   if (!pts.length) { map.setView([48.7784, 9.1800], 13); return; }
   if (pts.length === 1) map.setView(pts[0], 16);
   else map.fitBounds(pts, { padding: [64, 64], maxZoom: 16 });
 }
 
+/* ---- Eigener Standort: hohe Genauigkeit, Genauigkeitskreis, schlechte Messungen verwerfen ---- */
+
 function toggleMe() {
   const b = $('#b-me');
   if (meWatch !== null) {
+    /* An: erster Tipp zentriert, zweiter Tipp (schon zentriert) schaltet aus. */
+    if (state.me) {
+      const c = map.latLngToContainerPoint([state.me.lat, state.me.lng]);
+      const mid = map.getSize().divideBy(2);
+      if (c.distanceTo(mid) > 40) { map.setView([state.me.lat, state.me.lng], Math.max(map.getZoom(), 16)); return; }
+    }
     navigator.geolocation.clearWatch(meWatch); meWatch = null;
     if (meMarker) { map.removeLayer(meMarker); meMarker = null; }
-    b.classList.remove('on'); return;
+    if (meCircle) { map.removeLayer(meCircle); meCircle = null; }
+    state.me = null; b.classList.remove('on'); b.textContent = 'Ich';
+    if (state.tab === 'lage') renderLage();
+    return;
   }
   if (!('geolocation' in navigator)) return toast('Ich', 'Standort nicht verfügbar');
-  b.classList.add('on');
+  b.classList.add('on'); b.textContent = 'Ich …';
   let first = true;
   meWatch = navigator.geolocation.watchPosition((p) => {
-    const ll = [p.coords.latitude, p.coords.longitude];
+    const fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, ts: Date.now() };
+    /* grobe Messung (WLAN/Funkzelle) nicht ueber eine gute, frische legen */
+    if (state.me && fix.acc > state.me.acc * 3 && fix.ts - state.me.ts < 30000) return;
+    state.me = fix;
+    const ll = [fix.lat, fix.lng];
     if (!meMarker) {
-      meMarker = L.marker(ll, { icon: sqIcon(16, '#6E8CA8', '#0C0C0E'), zIndexOffset: 900 }).addTo(map);
-      meMarker.bindTooltip('Ich', { className: 'ls-tip', direction: 'left', offset: [-10, 0] });
-    } else meMarker.setLatLng(ll);
-    if (first) { first = false; map.setView(ll, Math.max(map.getZoom(), 15)); }
-  }, () => { toast('Ich', 'Standort nicht erlaubt'); b.classList.remove('on'); meWatch = null; }, { enableHighAccuracy: true, maximumAge: 10000 });
+      meCircle = L.circle(ll, { radius: fix.acc, color: '#6E8CA8', weight: 1, fillColor: '#6E8CA8', fillOpacity: 0.15, interactive: false }).addTo(map);
+      meMarker = L.marker(ll, { icon: sqIcon(18, '#6E8CA8', '#0C0C0E'), zIndexOffset: 900 }).addTo(map);
+      meMarker.bindTooltip('Ich', { className: 'ls-tip', direction: 'left', offset: [-12, 0] });
+    } else { meMarker.setLatLng(ll); meCircle.setLatLng(ll).setRadius(fix.acc); }
+    b.textContent = 'Ich ±' + Math.round(fix.acc) + ' M';
+    if (first) { first = false; map.setView(ll, Math.max(map.getZoom(), 16)); }
+    if (state.tab === 'lage') renderLage();
+  }, (e) => {
+    toast('Ich', e.code === 1 ? 'Standort nicht erlaubt' : 'Kein GPS-Signal');
+    if (e.code === 1) { b.classList.remove('on'); b.textContent = 'Ich'; navigator.geolocation.clearWatch(meWatch); meWatch = null; }
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+}
+
+/* ---- Auto der Jaeger: als Punkt 'car' in locations, fuer beide Jaeger sichtbar ---- */
+
+function carPos() {
+  const l = latest('car');
+  return l && l.source !== 'clear' ? l : null;
+}
+
+async function setCar(lat, lng) {
+  try {
+    await store.addLocation({ player_id: 'car', lat, lng, source: 'hunter', created_at: new Date().toISOString() });
+    toast('Auto', 'Abgestellt ' + formatCoordinate(lat, lng), 'detective');
+  } catch { toast('Auto', 'Speichern fehlgeschlagen'); }
+}
+async function clearCar() {
+  const c = carPos(); if (!c) return;
+  try { await store.addLocation({ player_id: 'car', lat: c.lat, lng: c.lng, source: 'clear', created_at: new Date().toISOString() }); } catch { toast('Auto', 'Fehlgeschlagen'); }
+}
+
+function drawCar() {
+  if (!map) return;
+  const c = carPos();
+  if (!c) { if (carMarker) { map.removeLayer(carMarker); carMarker = null; } return; }
+  if (!carMarker) {
+    carMarker = L.marker([c.lat, c.lng], { icon: chipIcon('AUTO', 'chip-car'), zIndexOffset: 950 }).addTo(map);
+    carMarker.bindPopup(() => `<div class="label">Auto · ${timeHM(c.created_at)}</div><div class="muted">${formatCoordinate(c.lat, c.lng)}</div>
+      ${state.me ? `<div style="margin-top:4px">Zu Fuss ca. ${walkMin(distanceM(state.me, c))} min · <a href="${gmaps(state.me, c, 'walking')}" target="_blank" rel="noopener">Route</a></div>` : ''}`);
+  } else carMarker.setLatLng([c.lat, c.lng]);
+}
+
+/* ---- Zeitschaetzung: Luftlinie mit Umwegfaktor. Echte Route ueber Google Maps. ---- */
+const walkMin = (d) => Math.max(1, Math.round((d * 1.3) / 80));          // 4.8 km/h
+const driveMin = (d) => Math.max(2, Math.round(3 + (d * 1.4) / 370));     // ~22 km/h Stadt + 3 min Parken
+function gmaps(from, to, mode) {
+  return `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${mode}`;
 }
 
 /* ===================== Naehe-Alarm ===================== */
@@ -368,7 +642,9 @@ function evaluateProximity(silent) {
       }
     }
   }
+  const changed = nowInside.size !== state.inside.size || [...nowInside].some((k) => !state.inside.has(k));
   state.inside = nowInside;
+  if (changed) applyLayers();
   if (silent || !fresh.length) return;
   for (const f of fresh) {
     const text = `${playerName(state.players, f.id)} ist ${Math.round(f.d)} M von ${f.poi.name} entfernt`;
@@ -414,7 +690,7 @@ function renderCards() {
   const el = $('#cards'); if (!el) return;
   const ids = BANDIT_IDS();
   const seen = ids.map(latest).filter(Boolean);
-  $('#sheet-sum').textContent = seen.length ? 'Letztes Signal ' + timeHM(seen.map((l) => l.created_at).sort().pop()) : 'Noch kein Signal';
+  $('#sheet-sum').textContent = ids.map((id) => { const l = latest(id); return playerName(state.players, id) + ' ' + (l ? timeHM(l.created_at) : '--:--'); }).join(' · ');
   el.innerHTML = cardsHtml(ids, 2);
   bindCards(el);
   const side = $('#bandits-wrap');
@@ -451,6 +727,14 @@ function bindCards(el) {
   });
 }
 
+function cardExtra(id, l) {
+  const parts = [];
+  const mo = motion(id); if (mo) parts.push(mo.dir + ' ' + mo.kmh.toFixed(1) + ' KM/H');
+  const st = nearestStation(l); if (st) parts.push(st.s[2].toUpperCase() + ' ' + formatDistance(st.d));
+  const car = carPos(); if (car) parts.push('AUTO ' + driveMin(distanceM(car, l)) + ' MIN');
+  return parts.length ? `<div class="label" style="margin-top:6px;color:var(--bone-60)">${esc(parts.join(' · '))}</div>` : '';
+}
+
 function cardsHtml(ids, nearCount) {
   return ids.map((id) => {
     const l = latest(id);
@@ -458,9 +742,108 @@ function cardsHtml(ids, nearCount) {
     return `<div class="pcard" data-player="${id}" style="--pc:${playerColor(id)}">
       <div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label">${l ? 'Zuletzt gesehen ' + agoText(l.created_at) : 'Kein Signal'}</span></div>
       ${l ? `<div class="row" style="margin-top:4px"><span class="value" style="font-size:13px">${formatCoordinate(l.lat, l.lng)}</span><span class="label">${timeHM(l.created_at)}${l.accuracy ? ' · ±' + l.accuracy + ' M' : ''}</span></div>
-      <div class="near">${near.map((n) => `<div class="value"><span class="${n.d <= ALERT_RADIUS_M ? 'hot' : ''}">${formatDistance(n.d)}</span> <span class="muted">${esc(n.poi.name.toUpperCase())}</span></div>`).join('')}</div>` : ''}
+      <div class="near">${near.map((n) => `<div class="value"><span class="${n.d <= ALERT_RADIUS_M ? 'hot' : ''}">${formatDistance(n.d)}</span> <span class="muted">${esc((n.poi.code || n.poi.tasks.map(taskCode).join('/')) + ' ' + n.poi.name.toUpperCase())}</span></div>`).join('')}</div>
+      ${cardExtra(id, l)}` : ''}
     </div>`;
   }).join('');
+}
+
+/* ===================== Lage: Auto, Wege, Termine, Haltestellen ===================== */
+
+function nextAppointment() {
+  const now = Date.now();
+  return APPOINTMENTS.filter((a) => new Date(a.end).getTime() > now && !isDone(a.id))
+    .sort((a, b) => a.start.localeCompare(b.start))[0] || null;
+}
+
+function untilText(iso) {
+  const min = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  if (min <= 0) return 'LÄUFT';
+  const h = Math.floor(min / 60);
+  if (h >= 24) return 'IN ' + Math.floor(h / 24) + ' T ' + (h % 24) + ' H';
+  return 'IN ' + (h ? h + ' H ' : '') + pad2(min % 60) + ' MIN';
+}
+
+function routeLink(from, to, mode, text = 'Route') {
+  return `<a class="label" href="${gmaps(from, to, mode)}" target="_blank" rel="noopener">${text}</a>`;
+}
+
+function renderLage() {
+  const el = $('#lage-wrap'); if (!el || state.tab !== 'lage') return;
+  const car = carPos();
+  const me = state.me;
+  const appt = nextAppointment();
+  const hs = hotspots().slice(0, 10);
+  const line = (k, v, link = '') => `<div class="lage-row"><span class="label">${k}</span><span class="value">${v}</span>${link}</div>`;
+
+  const ways = BANDIT_IDS().map((id) => {
+    const l = latest(id);
+    if (!l) return `<div class="pcard" style="--pc:${playerColor(id)}"><div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label">Kein Signal</span></div></div>`;
+    const mo = motion(id);
+    const st = nearestStation(l);
+    const age = ageMin(l);
+    return `<div class="pcard" data-player="${id}" style="--pc:${playerColor(id)}">
+      <div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label">Signal ${timeHM(l.created_at)} · ${agoText(l.created_at)}</span></div>
+      ${car ? line('Auto hin', `ca. ${driveMin(distanceM(car, l))} MIN · ${formatDistance(distanceM(car, l))}`, routeLink(car, l, 'driving')) : ''}
+      ${me ? line('Zu Fuss', `ca. ${walkMin(distanceM(me, l))} MIN · ${formatDistance(distanceM(me, l))}`, routeLink(me, l, 'walking')) : ''}
+      ${st ? line('Haltestelle', `${esc(st.s[2].toUpperCase())} ${st.s[3]} · ${formatDistance(st.d)}`) : ''}
+      ${mo ? line('Bewegung', `${mo.dir} · ${mo.kmh.toFixed(1)} KM/H`) : ''}
+      ${age >= 2 ? line('Reichweite', `bis ca. ${formatDistance(Math.min(age * REACH_M_PER_MIN, 10000))}`) : ''}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="section-head"><h2 class="display d-s">Auto</h2><span class="label">${car ? 'Abgestellt ' + timeHM(car.created_at) : 'Nicht gesetzt'}</span></div>
+    ${car ? `<div style="padding-top:8px">${line('Position', formatCoordinate(car.lat, car.lng), routeLink(me || car, car, 'walking', 'Karte'))}
+      ${me ? line('Ich zum Auto', `ca. ${walkMin(distanceM(me, car))} MIN · ${formatDistance(distanceM(me, car))}`, routeLink(me, car, 'walking')) : '<div class="label" style="padding:8px 0">"Ich" auf der Karte einschalten für die Zeit zum Auto.</div>'}</div>` : ''}
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn small solid" id="car-me">Auto = mein Standort</button>
+      <button class="btn small" id="car-map">Auf Karte tippen</button>
+      ${car ? '<button class="btn small quiet" id="car-clear">Entfernen</button>' : ''}
+    </div>
+    <div class="label" style="margin-top:8px">Tipp: Auf der Karte lange drücken setzt das Auto direkt.</div>
+
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Wege</h2><span class="label">Schätzung · Route = Google Maps</span></div>
+      ${ways}
+    </div>
+
+    ${appt ? `<div class="section">
+      <div class="section-head"><h2 class="display d-s">Nächster Termin</h2><span class="label">${untilText(appt.start)}</span></div>
+      <div class="pcard" data-poi-ll="${appt.lat},${appt.lng}" style="--pc:var(--bone)">
+        <div class="row"><span class="display d-s">${esc(appt.place)}</span></div>
+        <div class="label" style="margin-top:4px">${esc(appt.day)} ${esc(appt.window)} · ${esc(appt.note)}</div>
+        ${car ? line('Auto hin', `ca. ${driveMin(distanceM(car, appt))} MIN`, routeLink(car, appt, 'driving')) : ''}
+        ${me ? line('Zu Fuss', `ca. ${walkMin(distanceM(me, appt))} MIN`, routeLink(me, appt, 'walking')) : ''}
+      </div>
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Haltestellen</h2><span class="label">Wahrscheinliche Ausstiege</span></div>
+      <div class="label" style="padding:8px 0">S-Bahn und Stadtbahn mit den meisten offenen Aufgaben-Orten in ${HOT_R} M. Termine in den nächsten 4 H zählen doppelt.</div>
+      ${!state.osm ? `<div class="label" style="padding:8px 0">${state.osmStatus === 'laedt' ? 'Haltestellen werden geladen' : 'Haltestellen nicht geladen'}</div><button class="btn small" id="osm-retry">Neu laden</button>`
+        : hs.length ? hs.map((h, i) => `<div class="hot-row" data-ll="${h.st[0]},${h.st[1]}">
+          <span class="num hot-rank">${pad2(i + 1)}</span>
+          <div><div class="value">${esc(h.st[2].toUpperCase())} <span class="muted">${h.st[3]}</span></div>
+          <div class="label" style="margin-top:2px">${h.near.map((n) => esc(n.code) + ' ' + formatDistance(n.d)).join(' · ')}</div>
+          ${car ? `<div class="label" style="margin-top:2px">Auto ca. ${driveMin(distanceM(car, { lat: h.st[0], lng: h.st[1] }))} MIN</div>` : ''}</div>
+          <span class="hot-bar"><i style="width:${Math.round((h.score / hs[0].score) * 100)}%"></i></span>
+        </div>`).join('') : '<div class="label">Keine offenen Orte in Haltestellennähe</div>'}
+    </div>`;
+
+  const goMap = (lat, lng, z = 16) => { if (!state.desk) setTab('map'); setTimeout(() => map.setView([lat, lng], Math.max(map.getZoom(), z)), 50); };
+  el.querySelectorAll('[data-ll]').forEach((r) => r.onclick = () => { const [a, b] = r.dataset.ll.split(',').map(Number); goMap(a, b); });
+  el.querySelectorAll('[data-poi-ll]').forEach((r) => r.onclick = () => { const [a, b] = r.dataset.poiLl.split(',').map(Number); goMap(a, b, 15); });
+  el.querySelectorAll('[data-player]').forEach((c) => c.onclick = (e) => { if (e.target.closest('a')) return; const l = latest(c.dataset.player); if (l) goMap(l.lat, l.lng); });
+  $('#car-me').onclick = () => {
+    if (state.me && Date.now() - state.me.ts < 60000) return setCar(state.me.lat, state.me.lng);
+    toast('Auto', 'Standort wird bestimmt', 'detective');
+    navigator.geolocation.getCurrentPosition((p) => setCar(p.coords.latitude, p.coords.longitude),
+      () => toast('Auto', 'Kein Standort'), { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  };
+  $('#car-map').onclick = () => { state.placingCar = true; $('#b-car').classList.add('on'); if (!state.desk) setTab('map'); toast('Auto', 'Auf die Karte tippen, wo das Auto steht', 'detective'); };
+  if ($('#car-clear')) $('#car-clear').onclick = clearCar;
+  if ($('#osm-retry')) $('#osm-retry').onclick = () => loadLive(true);
 }
 
 /* ===================== Aufgaben (nur lesen) ===================== */
@@ -551,6 +934,12 @@ function buildExport() {
     const l = latest(id);
     out.push(l ? `- ${playerName(state.players, id)}: ${ll(l)} (${formatCoordinate(l.lat, l.lng)}), +-${l.accuracy ?? '?'} m, ${timeHM(l.created_at)}, ${agoText(l.created_at).toLowerCase()}` : `- ${playerName(state.players, id)}: kein Signal`);
   }
+  const car = carPos();
+  if (car) out.push(`- Auto der Jäger: ${ll(car)}, abgestellt ${timeHM(car.created_at)}`);
+  for (const id of BANDIT_IDS()) {
+    const mo = motion(id); const l = latest(id); const st = l && nearestStation(l);
+    if (mo || st) out.push(`- ${playerName(state.players, id)}: ${mo ? 'Richtung ' + mo.dir + ', ' + mo.kmh.toFixed(1) + ' km/h' : ''}${mo && st ? ', ' : ''}${st ? 'nächste Haltestelle ' + st.s[2] + ' (' + st.s[3] + ') ' + formatDistance(st.d).toLowerCase() : ''}`);
+  }
   out.push('');
   out.push('STRECKE LETZTE 60 MIN (Zeit Lat, Lng)');
   for (const id of BANDIT_IDS()) {
@@ -585,6 +974,12 @@ function buildExport() {
     const list = nearList(id, allPois());
     if (!list.length) continue;
     out.push(`- ${playerName(state.players, id)}: ` + list.map((n) => `${n.poi.name} ${formatDistance(n.d).toLowerCase()}`).join('; '));
+  }
+  const hs = hotspots().slice(0, 8);
+  if (hs.length) {
+    out.push('');
+    out.push('HALTESTELLEN MIT DEN MEISTEN OFFENEN ORTEN IN 800 M');
+    hs.forEach((h, i) => out.push(`${i + 1}. ${h.st[2]} (${h.st[3]}): ${h.near.map((n) => n.code + ' ' + formatDistance(n.d).toLowerCase()).join(', ')}`));
   }
   out.push('');
   out.push('FRAGE: Welchen Ort steuern die Gejagten als nächstes an, und wo können wir sie am besten abfangen? Berücksichtige offene Aufgaben, Bewegungsrichtung und die nächsten Pflichttermine.');
@@ -631,7 +1026,8 @@ async function loadAll(initial) {
     state.completions = Object.fromEntries(completions.map((c) => [c.task_id, c]));
     state.proofs = proofs;
     evaluateProximity(true);
-    drawPlayers(); renderCards(); renderTasks();
+    refreshPoiIcons(); buildLive();
+    drawPlayers(); drawCar(); renderCards(); renderTasks(); renderLage();
     if (initial) fitAll();
   } catch (e) {
     console.error(e);
@@ -646,7 +1042,8 @@ function onEvent({ table, type, row }) {
     drawPlayers(); renderCards();
   } else if (table === 'locations' && type === 'INSERT') {
     addLoc(row);
-    drawPlayers(); evaluateProximity(false); renderCards();
+    if (row.player_id === 'car') { drawCar(); renderCards(); renderLage(); return; }
+    drawPlayers(); evaluateProximity(false); renderCards(); renderLage();
   } else if (table === 'completions') {
     const before = state.completions[row.task_id];
     state.completions[row.task_id] = row;
@@ -661,6 +1058,7 @@ function onEvent({ table, type, row }) {
       if (state.tab !== 'tasks') { state.unseenTasks++; renderBadge(); }
     }
     renderTasks();
+    refreshPoiIcons(); buildLive(); evaluateProximity(true); renderCards(); renderLage();
     if (state.tab === 'export') renderExport();
   } else if (table === 'proofs') {
     if (type === 'DELETE') state.proofs = state.proofs.filter((p) => p.id !== row.id);
@@ -683,7 +1081,7 @@ function start() {
   });
   pushActive().then((on) => { state.push = on; renderPush(); });
   /* "vor X Min" und Ausgrauen alter Signale laufend aktualisieren */
-  setInterval(() => { drawPlayers(); renderCards(); }, 30000);
+  setInterval(() => { drawPlayers(); renderCards(); renderLage(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(false); });
 }
 
