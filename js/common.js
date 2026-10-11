@@ -151,6 +151,17 @@ export function notifyHunters(title, body) {
   }).catch(() => {});
 }
 
+/* Nach jedem gesendeten Standort: Server prueft den 500-m-Umkreis und schickt Push. */
+export function checkProximity(playerId) {
+  if (!CONFIG.SUPABASE_URL || !CONFIG.VAPID_PUBLIC_KEY) return;
+  fetch('/api/proximity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player_id: playerId }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 export function statusText(s) {
   return { live: 'LIVE', connecting: 'VERBINDET', offline: 'OFFLINE', demo: 'DEMO-MODUS' }[s] || s.toUpperCase();
 }

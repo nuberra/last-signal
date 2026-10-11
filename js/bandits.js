@@ -4,7 +4,7 @@ import { store, DEMO } from './store.js';
 import { TASKS, APPOINTMENTS } from './data.js';
 import {
   $, esc, pad2, formatCoordinate, timeHM, agoText, toast, beep, unlockAudio, shrinkImage,
-  registerSW, notifyHunters, statusText, playerName,
+  registerSW, notifyHunters, checkProximity, statusText, playerName,
 } from './common.js';
 
 const ME_KEY = 'ls-bandit';
@@ -112,6 +112,7 @@ async function sendNow(source) {
     try {
       await flushQueue();
       await store.addLocation(row);
+      checkProximity(me.id);
       if (source !== 'auto') toast('Signal', 'Standort gesendet ' + timeHM(row.created_at), 'bandit');
     } catch {
       const q = readQueue(); q.push(row); writeQueue(q);

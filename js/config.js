@@ -4,7 +4,7 @@
 export const CONFIG = {
   SUPABASE_URL: 'https://wptcoucdhxgwvbjtwtra.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwdGNvdWNkaHhnd3ZianR3dHJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3NDQwNDAsImV4cCI6MjEwNzMyMDA0MH0.gIitSYHNNUzm6H-x5vinnvlp0UO57C_OScdpDL-Qvqg', // anon public
-  VAPID_PUBLIC_KEY: '',    // optional, für Push. Siehe README.
+  VAPID_PUBLIC_KEY: 'BAbwpP1RxvGDGuy0Ax5hVK02SqvHA6RZTF54V-YyY6P1TPRjCyaNr1ACy0n7qUUIVXX1mNKvzgKWa5tjKQn1ZNc', // Push; privater Schluessel nur in Vercel
 
   /* Passwort der Jäger-Ansicht. Reine Zugangssperre im Browser. */
   HUNTER_PASSWORD: 'Last Signal',

@@ -23,17 +23,29 @@ Ohne Supabase-Daten in `js/config.js` läuft die App im **Demo-Modus** (Daten nu
 2. Framework Preset **Other**, Root Directory leer lassen, kein Build-Befehl. **Deploy**.
 3. Alternativ per CLI im Repo-Ordner: `npx vercel --prod`.
 
-## 3. Push für die Jäger (optional, empfohlen)
+## 3. Push für die Jäger und Standort im Hintergrund
 
-Ohne Push gibt es Live-Meldung, Ton und Vibration nur bei offener Jäger-Seite.
+Der VAPID-Public-Key steht schon in `js/config.js`. In Vercel unter **Settings → Environment Variables** zwei geheime Werte setzen, danach **Deployments → Redeploy**:
 
-1. `npx web-push generate-vapid-keys` ausführen.
-2. Public Key in `js/config.js` bei `VAPID_PUBLIC_KEY` eintragen.
-3. In Vercel unter **Settings → Environment Variables** setzen:
-   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (z.B. `mailto:du@example.com`),
-   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API → service_role, **geheim**, nur hier).
-4. Neu deployen. Auf der Jäger-Seite oben **Push** tippen und erlauben.
-   iPhone: Push geht nur, wenn die Seite vorher über **Teilen → Zum Home-Bildschirm** installiert und von dort geöffnet wurde (iOS 16.4+).
+| Name | Wert |
+| --- | --- |
+| `VAPID_PRIVATE_KEY` | privater Push-Schlüssel (nie ins Repo) |
+| `OWNTRACKS_PASSWORD` | frei gewähltes Passwort für OwnTracks |
+
+Push kommt bei: jeder erledigten Aufgabe bzw. jedem Pflichttermin, und wenn ein Gejagter neu in den 500-m-Umkreis eines Orts kommt (alle Ebenen).
+
+**Jäger:** Seite `/jaeger` öffnen, auf dem iPhone zuerst **Teilen → Zum Home-Bildschirm** und von dort öffnen (iOS 16.4+), dann oben **Push** tippen und erlauben. Android und Desktop-Chrome: direkt **Push** tippen.
+
+**Gejagte — OwnTracks** (sendet auch bei gesperrtem Handy):
+1. App **OwnTracks** installieren (App Store / Play Store, kostenlos).
+2. Einstellungen / Preferences → Connection:
+   - Mode: **HTTP**
+   - URL: `https://<projekt>.vercel.app/api/owntracks`
+   - Authentication an, UserID: `marvin` bzw. `julien`, Password: der Wert von `OWNTRACKS_PASSWORD`
+   - Device ID: `handy`, Tracker ID: `MA` bzw. `JU`
+3. Standort auf **Immer erlauben** stellen (iPhone: Einstellungen → OwnTracks → Standort → Immer, Genauer Standort an). Android: Akku-Optimierung für OwnTracks ausschalten.
+4. Überwachungsmodus auf der Karte in OwnTracks auf **Significant** (sparsam) oder **Move** (laufend, mehr Akku) stellen. Im Spiel: Move, wenn der Akku reicht.
+5. Testen: in OwnTracks **Publish** / Hochladen-Symbol tippen; der Punkt erscheint bei den Jägern.
 
 ## 4. Verteilen
 
