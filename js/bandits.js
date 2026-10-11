@@ -45,16 +45,11 @@ function renderSetup() {
       <h1 class="display d-xl" style="margin-top:16px">Last Signal</h1>
       <div class="display d-s" style="color:var(--orange);margin-top:8px">Bandits</div>
       <div class="field">
-        <span class="label">Platz</span>
+        <span class="label">Wer bist du</span>
         <div class="choice" id="slots">
-          ${CONFIG.BANDITS.map((b, i) => `<button class="btn ${i === 0 ? 'on' : ''}" data-slot="${b.id}">${esc(b.label)}</button>`).join('')}
+          ${CONFIG.BANDITS.map((b, i) => `<button class="btn ${i === 0 ? 'on' : ''}" data-slot="${b.id}">${esc(b.name)}</button>`).join('')}
         </div>
       </div>
-      <label class="field">
-        <span class="label">Vorname</span>
-        <input id="name" autocomplete="given-name" maxlength="20" placeholder="LEA">
-      </label>
-      <div class="label error" id="err"></div>
       <button class="btn solid block" id="go" style="margin-top:16px">Starten</button>
       <p class="label" style="margin-top:16px">Danach fragt das Gerät nach dem Standort. Erlauben ist Pflicht.</p>
     </div>`;
@@ -63,10 +58,8 @@ function renderSetup() {
     root.querySelectorAll('[data-slot]').forEach((x) => x.classList.toggle('on', x === b));
   });
   $('#go').onclick = async () => {
-    const name = $('#name').value.trim();
-    if (!name) { $('#err').textContent = 'VORNAME FEHLT'; return; }
     unlockAudio();
-    me = { id: slot, name };
+    me = { id: slot, name: CONFIG.BANDITS.find((b) => b.id === slot).name };
     localStorage.setItem(ME_KEY, JSON.stringify(me));
     store.upsertPlayer({ id: me.id, name: me.name, role: 'bandit' }).catch(() => {});
     start();
@@ -119,10 +112,10 @@ async function sendNow(source) {
     try {
       await flushQueue();
       await store.addLocation(row);
-      if (source === 'manual') toast('Signal', 'Standort gesendet ' + timeHM(row.created_at), 'bandit');
+      if (source !== 'auto') toast('Signal', 'Standort gesendet ' + timeHM(row.created_at), 'bandit');
     } catch {
       const q = readQueue(); q.push(row); writeQueue(q);
-      if (source === 'manual') toast('Signal', 'Kein Netz. Wird nachgesendet.', 'bandit');
+      if (source !== 'auto') toast('Signal', 'Kein Netz. Wird nachgesendet.', 'bandit');
     }
   } catch (e) {
     state.geoError = e && e.code === 1 ? 'STANDORT NICHT ERLAUBT. IN DEN EINSTELLUNGEN FREIGEBEN.' : 'KEIN GPS-SIGNAL';
@@ -418,6 +411,8 @@ async function toggleDone(id, done, cb) {
       if (navigator.vibrate) navigator.vibrate(60);
       const what = task ? 'AUFGABE ' + pad2(task.n) + ' ERLEDIGT' : 'PFLICHTTERMIN ' + pad2(appt.n) + ' ERLEDIGT';
       notifyHunters(what, (task ? task.title : appt.place) + ' · ' + me.name.toUpperCase());
+      /* Bei jeder Abgabe wird der Standort mitgeschickt; der 20-Minuten-Takt startet neu. */
+      sendNow('task');
     }
   } catch {
     cb.checked = !done; cb.disabled = false;
@@ -476,4 +471,6 @@ function start() {
   window.addEventListener('online', flushQueue);
 }
 
-if (me && me.id && me.name) start(); else renderSetup();
+/* Namen sind fest vergeben: gespeicherten Platz immer mit dem Namen aus der Konfiguration abgleichen. */
+const mySlot = me && CONFIG.BANDITS.find((b) => b.id === me.id);
+if (mySlot) { me.name = mySlot.name; localStorage.setItem(ME_KEY, JSON.stringify(me)); start(); } else renderSetup();

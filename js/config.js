@@ -9,12 +9,13 @@ export const CONFIG = {
   /* Passwort der Jäger-Ansicht. Reine Zugangssperre im Browser. */
   HUNTER_PASSWORD: 'Last Signal',
 
-  /* Standortversand der Gejagten in Sekunden, solange die Seite offen ist. */
-  LOCATION_INTERVAL_S: 90,
+  /* Standortversand der Gejagten in Sekunden, solange die Seite offen ist.
+     Zusaetzlich wird bei jeder abgehakten Aufgabe sofort gesendet. */
+  LOCATION_INTERVAL_S: 20 * 60,
 
-  /* Die zwei Gejagten-Plaetze. Der Name wird beim ersten Start eingegeben. */
+  /* Die zwei Gejagten, fest vergeben. Beim ersten Start waehlt jedes Handy seinen Namen. */
   BANDITS: [
-    { id: 'b1', label: 'BANDIT 01', color: '#FF4D0F' },
-    { id: 'b2', label: 'BANDIT 02', color: '#F0EBE1' },
+    { id: 'b1', name: 'MARVIN', label: 'BANDIT 01', color: '#FF4D0F' },
+    { id: 'b2', name: 'JULIEN', label: 'BANDIT 02', color: '#F0EBE1' },
   ],
 };

@@ -43,7 +43,7 @@ export function agoText(iso, now = Date.now()) {
 export function playerName(players, id) {
   const p = players.find((x) => x.id === id);
   const slot = CONFIG.BANDITS.find((b) => b.id === id);
-  return ((p && p.name) || (slot && slot.label) || id || '').toUpperCase();
+  return ((slot && slot.name) || (p && p.name) || (slot && slot.label) || id || '').toUpperCase();
 }
 
 export const playerColor = (id) => (CONFIG.BANDITS.find((b) => b.id === id) || {}).color || '#7A7A74';

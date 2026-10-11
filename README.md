@@ -37,7 +37,7 @@ Ohne Push gibt es Live-Meldung, Ton und Vibration nur bei offener Jäger-Seite.
 
 ## 4. Verteilen
 
-- **Gejagte**: Link `/` schicken. Öffnen, Platz (BANDIT 01 / 02) und Vorname wählen, Standort erlauben, dann **Zum Home-Bildschirm**. Im Spiel die Seite offen lassen und **Bildschirm wach** aktivieren: Browser senden keinen Standort, wenn das Handy gesperrt ist. **Jetzt senden** ist der Fallback.
+- **Gejagte**: Link `/` schicken. Öffnen, MARVIN oder JULIEN wählen, Standort erlauben, dann **Zum Home-Bildschirm**. Im Spiel die Seite offen lassen und **Bildschirm wach** aktivieren: Browser senden keinen Standort, wenn das Handy gesperrt ist. **Jetzt senden** ist der Fallback.
 - **Jäger**: Link `/jaeger` plus Passwort `Last Signal` getrennt schicken. Zum Home-Bildschirm hinzufügen, **Push** aktivieren, einmal auf **Ton aus** tippen, damit der Ton freigeschaltet ist.
 
 ## Hinweise
