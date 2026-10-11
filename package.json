@@ -1,0 +1,14 @@
+{
+  "name": "last-signal",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Last Signal — City Hunt Stuttgart. Statische App plus eine Push-Funktion.",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve -l 5173 .",
+    "vapid": "npx web-push generate-vapid-keys"
+  },
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}
