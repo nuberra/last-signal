@@ -34,17 +34,17 @@ export const TASKS = [
 export const APPOINTMENTS = [
   {
     id: 'a1', n: 1, place: 'Höhenpark Killesberg', lat: 48.80412, lng: 9.17375,
-    day: 'FR 30.10.', window: '16:00 BIS 18:00', note: '20 Min. Aufenthalt',
+    day: 'FR 30.10.', window: '16:00 BIS 18:00', note: '20 Min. Aufenthalt', stay: 20,
     start: '2026-10-30T16:00:00+01:00', end: '2026-10-30T18:00:00+01:00',
   },
   {
     id: 'a2', n: 2, place: 'Starbucks Königstrasse 28', lat: 48.77876, lng: 9.17782,
-    day: 'SA 31.10.', window: '12:00', note: '30 Min. Treffen, 10 Min. Vorlauf für die Gejagten',
+    day: 'SA 31.10.', window: '12:00', note: '30 Min. Treffen, 10 Min. Vorlauf für die Gejagten', stay: 30,
     start: '2026-10-31T11:50:00+01:00', end: '2026-10-31T12:30:00+01:00',
   },
   {
     id: 'a3', n: 3, place: 'Mittlerer Schlossgarten', lat: 48.78574, lng: 9.18732,
-    day: 'SO 01.11.', window: '10:00 BIS 12:00', note: '20 Min. Aufenthalt',
+    day: 'SO 01.11.', window: '10:00 BIS 12:00', note: '20 Min. Aufenthalt', stay: 20,
     start: '2026-11-01T10:00:00+01:00', end: '2026-11-01T12:00:00+01:00',
   },
 ];

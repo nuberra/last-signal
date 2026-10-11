@@ -2,6 +2,7 @@
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
 import { TASKS, APPOINTMENTS } from './data.js';
+import { exifGps } from './exif.js';
 import {
   $, esc, pad2, formatCoordinate, timeHM, agoText, toast, beep, unlockAudio, shrinkImage,
   registerSW, notifyHunters, checkProximity, statusText, playerName,
@@ -385,12 +386,18 @@ function pickFile(taskId, camera) {
 
 async function upload(taskId, raw) {
   unlockAudio();
+  /* Ort des Beweises: GPS aus dem Foto (EXIF), sonst die aktuelle Position des Geraets.
+     EXIF zuerst lesen, das Verkleinern entfernt die Metadaten. */
+  const exif = await exifGps(raw);
+  const devicePos = exif ? null : freshFix(8000).catch(() => null);
   const file = await shrinkImage(raw);
   if (file.size > MAX_UPLOAD) { toast('Upload', 'Datei zu gross, maximal 50 MB. Video kürzen.'); return; }
   state.uploading[taskId] = true; renderTasks();
   try {
     const { url, path } = await store.uploadProof(file, taskId);
-    const [row] = await store.addProof({ task_id: taskId, url, path, kind: file.type || 'application/octet-stream', uploaded_by: me.id });
+    const dev = devicePos ? await devicePos : null;
+    const geo = exif ? { lat: exif.lat, lng: exif.lng, geo_source: 'exif' } : dev ? { lat: dev.lat, lng: dev.lng, geo_source: 'device' } : {};
+    const [row] = await store.addProof({ task_id: taskId, url, path, kind: file.type || 'application/octet-stream', uploaded_by: me.id, ...geo });
     if (row && !state.proofs.some((p) => p.id === row.id)) state.proofs.push(row);
     toast('Beweis', 'Hochgeladen. Aufgabe kann abgehakt werden.', 'bandit');
   } catch (e) {

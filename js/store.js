@@ -29,7 +29,19 @@ function supabaseStore() {
       task_id, done, done_by: done ? by : null, done_at: done ? new Date().toISOString() : null, updated_at: new Date().toISOString(),
     }).select()),
     getProofs: () => q((c) => c.from('proofs').select('*').order('created_at', { ascending: true })),
-    addProof: (p) => q((c) => c.from('proofs').insert(p).select()),
+    /* Ohne Erweiterung 02 fehlen lat/lng in proofs: dann ohne Ortsangabe speichern. */
+    async addProof(p) {
+      try { return await q((c) => c.from('proofs').insert(p).select()); }
+      catch (e) {
+        if (!/lat|lng|geo_source|column/i.test(String(e.message || e))) throw e;
+        const { lat, lng, geo_source, ...rest } = p;
+        return q((c) => c.from('proofs').insert(rest).select());
+      }
+    },
+    getItems: () => q((c) => c.from('hunter_items').select('*').order('created_at', { ascending: true })),
+    addItem: (it) => q((c) => c.from('hunter_items').insert(it).select()),
+    updateItem: (id, patch) => q((c) => c.from('hunter_items').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select()),
+    deleteItem: (id) => q((c) => c.from('hunter_items').delete().eq('id', id)),
     deleteProof: (id) => q((c) => c.from('proofs').delete().eq('id', id)),
     async uploadProof(file, taskId) {
       await ready;
@@ -44,7 +56,7 @@ function supabaseStore() {
     subscribe(handler, onStatus) {
       ready.then(() => {
         const ch = client.channel('last-signal');
-        for (const table of ['players', 'locations', 'completions', 'proofs']) {
+        for (const table of ['players', 'locations', 'completions', 'proofs', 'hunter_items']) {
           ch.on('postgres_changes', { event: '*', schema: 'public', table }, (msg) => {
             handler({ table, type: msg.eventType, row: msg.eventType === 'DELETE' ? msg.old : msg.new });
           });
@@ -64,7 +76,7 @@ function demoStore() {
   };
   const db = () => {
     const d = load();
-    d.players ||= []; d.locations ||= []; d.completions ||= []; d.proofs ||= []; d.seq ||= 1;
+    d.players ||= []; d.locations ||= []; d.completions ||= []; d.proofs ||= []; d.hunter_items ||= []; d.seq ||= 1;
     return d;
   };
   const save = (d) => localStorage.setItem(KEY, JSON.stringify(d));
@@ -113,6 +125,26 @@ function demoStore() {
       const row = d.proofs.find((p) => p.id === id);
       d.proofs = d.proofs.filter((p) => p.id !== id); save(d);
       row && emit({ table: 'proofs', type: 'DELETE', row });
+    },
+    getItems: async () => db().hunter_items,
+    async addItem(it) {
+      const d = db();
+      const row = { id: d.seq++, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...it };
+      d.hunter_items.push(row); save(d); emit({ table: 'hunter_items', type: 'INSERT', row });
+      return [row];
+    },
+    async updateItem(id, patch) {
+      const d = db();
+      const i = d.hunter_items.findIndex((r) => r.id === id); if (i < 0) return [];
+      d.hunter_items[i] = { ...d.hunter_items[i], ...patch, updated_at: new Date().toISOString() };
+      save(d); emit({ table: 'hunter_items', type: 'UPDATE', row: d.hunter_items[i] });
+      return [d.hunter_items[i]];
+    },
+    async deleteItem(id) {
+      const d = db();
+      const row = d.hunter_items.find((r) => r.id === id);
+      d.hunter_items = d.hunter_items.filter((r) => r.id !== id); save(d);
+      row && emit({ table: 'hunter_items', type: 'DELETE', row });
     },
     async uploadProof(file) {
       /* Demo: Videos nicht speichern, localStorage ist zu klein. */

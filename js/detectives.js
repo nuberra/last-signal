@@ -14,9 +14,13 @@ const PREF_KEY = 'ls-hunter-prefs';
 const STALE_MIN = 30;
 const root = $('#root');
 
-const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false };
-let prefs = { layers: { ...DEFAULT_LAYERS }, rings: true, reach: true, tiles: 'dark', route: 'all', sheet: false };
+const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: true, zeichnungen: true, jaeger: true };
+let prefs = { layers: { ...DEFAULT_LAYERS }, rings: true, reach: true, tiles: 'light', route: 'all', sheet: false };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
+if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
+const NAME_KEY = 'ls-hunter-name';
+let hunterName = localStorage.getItem(NAME_KEY) || '';
+const myHunterId = () => 'h:' + hunterName.toLowerCase();
 const savePrefs = () => localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
 
 const state = {
@@ -37,6 +41,9 @@ const state = {
   placingCar: false,
   osm: null,
   osmStatus: '',
+  items: [],          // Notizen und Zeichnungen der Jaeger
+  drawing: false,
+  drawColor: '#6E8CA8',
 };
 
 const BANDIT_IDS = () => {
@@ -61,6 +68,10 @@ function renderGate() {
       <div class="display d-s" style="color:var(--steel);margin-top:8px">Detectives</div>
       <form id="f">
         <label class="field">
+          <span class="label">Dein Name</span>
+          <input id="hn" autocomplete="given-name" maxlength="16" value="${esc(hunterName)}">
+        </label>
+        <label class="field">
           <span class="label">Passwort</span>
           <input id="pw" type="password" autocomplete="current-password" autocapitalize="off">
         </label>
@@ -71,7 +82,9 @@ function renderGate() {
   $('#f').onsubmit = (e) => {
     e.preventDefault();
     const v = $('#pw').value.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!$('#hn').value.trim()) { $('#err').textContent = 'NAME FEHLT'; return; }
     if (v !== CONFIG.HUNTER_PASSWORD.toLowerCase()) { $('#err').textContent = 'PASSWORT FALSCH'; return; }
+    hunterName = $('#hn').value.trim().toUpperCase(); localStorage.setItem(NAME_KEY, hunterName);
     localStorage.setItem(AUTH_KEY, '1');
     unlockAudio(); state.soundOn = true;
     start();
@@ -101,9 +114,11 @@ function renderShell() {
           <button class="btn" id="b-fit">Alle</button>
           <button class="btn" id="b-me">Ich</button>
           <button class="btn" id="b-car">Auto</button>
+          <button class="btn" id="b-draw">Zeichnen</button>
           <button class="btn" id="b-tiles"></button>
         </div>
         <div class="layers" id="layers" hidden></div>
+        <div class="drawbar" id="drawbar" hidden></div>
         <div class="map-overlay map-bottom">
           <div class="sheet ${prefs.sheet ? '' : 'collapsed'}" id="sheet">
             <div class="sheet-handle" id="sheet-handle"><span class="label">Bandits</span><span class="label" id="sheet-sum"></span></div>
@@ -115,9 +130,11 @@ function renderShell() {
         <nav class="tabs side-tabs">
           <button data-tab="bandits">Bandits</button>
           <button data-tab="lage">Lage</button>
+          <button data-tab="notes">Notizen</button>
           <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
           <button data-tab="export">Export</button>
         </nav>
+        <div class="view scroll" id="v-notes" hidden><div class="wrap" id="notes-wrap"></div></div>
         <div class="view scroll" id="v-bandits" hidden><div class="wrap" id="bandits-wrap"></div></div>
         <div class="view scroll" id="v-lage" hidden><div class="wrap" id="lage-wrap"></div></div>
         <div class="view scroll" id="v-tasks" hidden><div class="wrap" id="tasks-wrap"></div></div>
@@ -127,6 +144,7 @@ function renderShell() {
       <nav class="tabs mobile-tabs">
         <button data-tab="map">Karte</button>
         <button data-tab="lage">Lage</button>
+        <button data-tab="notes">Notizen</button>
         <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
         <button data-tab="export">Export</button>
       </nav>
@@ -137,6 +155,7 @@ function renderShell() {
   $('#b-fit').onclick = fitAll;
   $('#b-me').onclick = toggleMe;
   $('#b-tiles').onclick = () => { prefs.tiles = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length]; savePrefs(); applyTiles(); };
+  $('#b-draw').onclick = () => setDrawing(!state.drawing);
   $('#b-car').onclick = () => {
     state.placingCar = !state.placingCar;
     $('#b-car').classList.toggle('on', state.placingCar);
@@ -177,6 +196,8 @@ function setTab(tab) {
   $('#v-map').hidden = !state.desk && tab !== 'map';
   $('#v-bandits').hidden = tab !== 'bandits';
   $('#v-lage').hidden = tab !== 'lage';
+  $('#v-notes').hidden = tab !== 'notes';
+  if (tab === 'notes') renderNotes();
   $('#v-tasks').hidden = tab !== 'tasks';
   $('#v-export').hidden = tab !== 'export';
   if (tab === 'lage') renderLage();
@@ -206,12 +227,13 @@ let map, tiles, poiGroups = {}, poiMarkers = [], ringGroup, liveGroups = {}, pla
 let meMarker = null, meCircle = null, meWatch = null, carMarker = null;
 const canvas = () => (canvas.r ||= L.canvas({ padding: 0.3 }));
 const TILES = {
-  dark: { label: 'Dunkel', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', opt: { subdomains: 'abcd', maxZoom: 20, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' } },
   light: { label: 'Hell', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', opt: { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' } },
   transit: { label: 'ÖPNV', url: 'https://tile.memomaps.de/tilegen/{z}/{x}/{y}.png', opt: { maxZoom: 18, attribution: 'Karte <a href="https://memomaps.de/">memomaps.de</a> CC-BY-SA, Daten &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' } },
 };
-const TILE_ORDER = ['dark', 'light', 'transit'];
-const lineColor = () => (prefs.tiles === 'dark' ? '#F0EBE1' : '#0C0C0E');
+const TILE_ORDER = ['light', 'transit'];
+const lineColor = () => '#0C0C0E';
+/* Kartenfarbe eines Spielers: Bone ist auf heller Karte unsichtbar, dort Ink. */
+const mapColor = (id) => { const c = playerColor(id); return c.toUpperCase() === '#F0EBE1' ? '#0C0C0E' : c; };
 
 const taskCode = (id) => id.replace(/^t/, '');
 const poiDone = (it) => it.tasks.length > 0 && it.tasks.every(isDone);
@@ -262,13 +284,15 @@ function initMap() {
     $('#layers').hidden = true; $('#b-layers').classList.remove('on');
     if (state.placingCar) { state.placingCar = false; $('#b-car').classList.remove('on'); setCar(e.latlng.lat, e.latlng.lng); }
   });
-  /* Langes Druecken (mobil) oder Rechtsklick: Auto hier abstellen, Wege von hier */
+  /* Langes Druecken (mobil) oder Rechtsklick: Auto abstellen oder Notiz an diesem Ort */
   map.on('contextmenu', (e) => {
-    const ll = e.latlng;
-    const pop = L.popup().setLatLng(ll).setContent(`<div class="label">${formatCoordinate(ll.lat, ll.lng)}</div>
-      <button class="btn small solid" style="margin-top:8px;width:100%" data-car-here>Auto hier abstellen</button>`).openOn(map);
-    setTimeout(() => { const b = pop.getElement() && pop.getElement().querySelector('[data-car-here]'); if (b) b.onclick = () => { map.closePopup(); setCar(ll.lat, ll.lng); }; }, 0);
+    if (state.drawing) return;
+    L.popup().setLatLng(e.latlng).setContent(`<div class="label">${formatCoordinate(e.latlng.lat, e.latlng.lng)}</div>
+      <button class="btn small solid" style="margin-top:8px;width:100%" data-car-here>Auto hier abstellen</button>
+      <button class="btn small" style="margin-top:6px;width:100%" data-note-here>Notiz hier</button>`).openOn(map);
   });
+  initPopupActions();
+  initDrawing();
   loadLive(false);
 }
 
@@ -281,12 +305,12 @@ function applyZoomClass() {
 
 function applyTiles() {
   if (tiles) map.removeLayer(tiles);
-  const t = TILES[prefs.tiles] || TILES.dark;
+  const t = TILES[prefs.tiles] || TILES.light;
   tiles = L.tileLayer(t.url, t.opt).addTo(map);
   tiles.bringToBack();
   const next = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length];
   $('#b-tiles').textContent = TILES[next].label;
-  map.getContainer().classList.toggle('tiles-light', prefs.tiles !== 'dark');
+  map.getContainer().classList.add('tiles-light');
   applyLayers();
 }
 
@@ -393,7 +417,8 @@ function stationPopup(s) {
     <div style="margin:4px 0 8px;font-family:var(--font-display);font-size:22px;line-height:1;text-transform:uppercase">${esc(s[2])}</div>
     ${h ? `<div class="muted">Offene Orte in 800 M: ${h.near.map((n) => esc(n.code)).join(', ')}</div>` : '<div class="muted">Keine offenen Orte in 800 M</div>'}
     ${BANDIT_IDS().map((id) => { const l = latest(id); return l ? `<div>${esc(playerName(state.players, id))}: ${formatDistance(distanceM(l, { lat: s[0], lng: s[1] }))}</div>` : ''; }).join('')}
-    ${car ? `<div style="margin-top:4px">Auto: ca. ${driveMin(distanceM(car, { lat: s[0], lng: s[1] }))} min · <a href="${gmaps(car, { lat: s[0], lng: s[1] }, 'driving')}" target="_blank" rel="noopener">Route</a></div>` : ''}`;
+    ${car ? `<div style="margin-top:4px">Auto: ca. ${driveMin(distanceM(car, { lat: s[0], lng: s[1] }))} min · <a href="${gmaps(car, { lat: s[0], lng: s[1] }, 'driving')}" target="_blank" rel="noopener">Route</a></div>` : ''}
+    <button class="btn small" style="margin-top:8px;width:100%" data-dep="${esc(s[2])}">Abfahrten</button><div class="deps"></div>`;
 }
 
 /* Haltestellen, an denen die Gejagten am ehesten aussteigen: pro offener Aufgabe zaehlt
@@ -443,6 +468,11 @@ function renderLayers() {
     <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M<small>nur offene Orte</small></span></div>
     <div class="lsub label">OpenStreetMap · ohne Alarm${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''}</div>
     ${LIVE_LAYERS.map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom + (l.tasks.length ? ' · Aufgabe ' + l.tasks.map(taskCode).join('/') : ''))).join('')}
+    <div class="lsub label">Jäger</div>
+    ${row('jaeger', 'Anderer Jäger', String(hunterIds().length))}
+    ${row('notizen', 'Notizen mit Ort', pad2(notes().filter((n) => n.lat != null).length))}
+    ${row('zeichnungen', 'Zeichnungen', pad2(drawings().length))}
+    ${row('fotos', 'Beweisfotos', pad2(state.proofs.filter((p) => p.lat != null).length), 'Ort aus Foto oder Handy')}
     <div class="layer-row" data-reach="1"><input type="checkbox" class="check" ${prefs.reach ? 'checked' : ''} tabindex="-1"><span class="name">Reichweite seit Signal<small>${REACH_M_PER_MIN} M pro Minute</small></span></div>
     <div style="padding:12px 16px">
       <div class="label" style="margin-bottom:8px">Route</div>
@@ -452,7 +482,7 @@ function renderLayers() {
   $('#l-close').onclick = () => { el.hidden = true; $('#b-layers').classList.remove('on'); };
   el.querySelectorAll('[data-layer]').forEach((r) => r.onclick = () => {
     prefs.layers[r.dataset.layer] = !prefs.layers[r.dataset.layer]; savePrefs();
-    applyLayers(); renderLayers(); evaluateProximity(true); renderCards();
+    applyLayers(); renderLayers(); evaluateProximity(true); renderCards(); drawItems(); drawProofs(); drawHunters();
   });
   el.querySelector('[data-rings]').onclick = () => { prefs.rings = !prefs.rings; savePrefs(); applyLayers(); renderLayers(); };
   el.querySelector('[data-reach]').onclick = () => { prefs.reach = !prefs.reach; savePrefs(); drawPlayers(); renderLayers(); };
@@ -484,7 +514,7 @@ function motion(id) {
     const mins = (new Date(b.created_at) - new Date(a.created_at)) / 60000;
     if (mins > 45) return null;
     const d = distanceM(a, b);
-    if (d >= 60 && mins >= 2) { const kmh = (d / 1000) / (mins / 60); return kmh < 150 ? { dir: bearing(a, b), kmh, mins } : null; }
+    if (d >= 60 && mins >= 2) { const kmh = (d / 1000) / (mins / 60); return kmh < 150 ? { dir: bearing(a, b), kmh, mins, from: a, to: b } : null; }
   }
   return null;
 }
@@ -493,7 +523,7 @@ function drawPlayers() {
   if (!map) return;
   const since = routeSince();
   for (const id of BANDIT_IDS()) {
-    const color = playerColor(id);
+    const color = mapColor(id);
     const pts = state.locs[id] || [];
     let pl = playerLayers[id];
     if (!pl) {
@@ -523,7 +553,7 @@ function drawPlayers() {
     const stale = age > STALE_MIN;
     const icon = L.divIcon({
       className: 'ls-player' + (stale ? ' stale' : ''),
-      html: `<div style="position:relative;width:26px;height:26px;color:${color}"><div class="pulse"></div><div class="core" style="background:${color}"></div></div>`,
+      html: `<div style="position:relative;width:26px;height:26px;color:${color}"><div class="pulse"></div><div class="core" style="background:${color};border-color:${color === '#0C0C0E' ? '#F0EBE1' : '#0C0C0E'}"></div></div>`,
       iconSize: [26, 26], iconAnchor: [13, 13],
     });
     const tip = `${esc(playerName(state.players, id))} <span style="font-family:var(--font-mono);font-size:11px;color:var(--ash)">${timeHM(l.created_at)}</span>`;
@@ -578,6 +608,7 @@ function toggleMe() {
       meMarker.bindTooltip('Ich', { className: 'ls-tip', direction: 'left', offset: [-12, 0] });
     } else { meMarker.setLatLng(ll); meCircle.setLatLng(ll).setRadius(fix.acc); }
     b.textContent = 'Ich ±' + Math.round(fix.acc) + ' M';
+    shareMe(fix);
     if (first) { first = false; map.setView(ll, Math.max(map.getZoom(), 16)); }
     if (state.tab === 'lage') renderLage();
   }, (e) => {
@@ -808,6 +839,23 @@ function renderLage() {
       ${ways}
     </div>
 
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Prognose</h2><span class="label">Nächster Ort</span></div>
+      ${BANDIT_IDS().map((id) => { const pr = prognosis(id); return pr.length ? `<div class="pcard" style="--pc:${playerColor(id)}"><div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span></div>
+        ${pr.map((x) => `<div class="hot-row" data-ll="${x.p.lat},${x.p.lng}" style="grid-template-columns:48px 1fr"><span class="num hot-rank">${x.pct}%</span><div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div><div class="label" style="margin-top:2px">${esc(x.why.join(' · '))}</div></div></div>`).join('')}</div>` : ''; }).join('') || '<div class="label" style="padding:8px 0">Noch kein Signal</div>'}
+      <div class="label" style="padding:8px 0">Gewichtet nach Nähe, Bewegungsrichtung und anstehenden Pflichtterminen. Nur offene Orte.</div>
+    </div>
+
+    ${hunterIds().length ? `<div class="section">
+      <div class="section-head"><h2 class="display d-s">Jäger</h2></div>
+      ${hunterIds().map((id) => { const l = latest(id); return `<div class="lage-row" data-ll="${l.lat},${l.lng}"><span class="label">${esc(hunterLabel(id))}</span><span class="value">${agoText(l.created_at)}${me ? ' · ' + formatDistance(distanceM(me, l)) : ''}</span><span></span></div>`; }).join('')}
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Pflichttermine</h2><span class="label">Anwesenheit aus Signalen</span></div>
+      ${APPOINTMENTS.map(apptHtml).join('')}
+    </div>
+
     ${appt ? `<div class="section">
       <div class="section-head"><h2 class="display d-s">Nächster Termin</h2><span class="label">${untilText(appt.start)}</span></div>
       <div class="pcard" data-poi-ll="${appt.lat},${appt.lng}" style="--pc:var(--bone)">
@@ -844,6 +892,338 @@ function renderLage() {
   $('#car-map').onclick = () => { state.placingCar = true; $('#b-car').classList.add('on'); if (!state.desk) setTab('map'); toast('Auto', 'Auf die Karte tippen, wo das Auto steht', 'detective'); };
   if ($('#car-clear')) $('#car-clear').onclick = clearCar;
   if ($('#osm-retry')) $('#osm-retry').onclick = () => loadLive(true);
+}
+
+/* ===================== Jaeger untereinander ===================== */
+
+let lastShared = null;
+/* Eigene Position fuer den anderen Jaeger: hoechstens alle 45 s oder bei 25 m Bewegung. */
+function shareMe(fix) {
+  if (!hunterName || fix.acc > 100) return;
+  const now = Date.now();
+  if (lastShared && now - lastShared.t < 45000 && distanceM(lastShared, fix) < 25) return;
+  lastShared = { lat: fix.lat, lng: fix.lng, t: now };
+  store.addLocation({ player_id: myHunterId(), lat: fix.lat, lng: fix.lng, accuracy: Math.round(fix.acc), source: 'hunter', created_at: new Date().toISOString() }).catch(() => {});
+}
+
+const hunterIds = () => Object.keys(state.locs).filter((k) => k.startsWith('h:') && k !== myHunterId());
+const hunterLabel = (id) => id.slice(2).toUpperCase();
+let hunterMarkers = {};
+function drawHunters() {
+  if (!map) return;
+  for (const id of hunterIds()) {
+    const l = latest(id);
+    const show = prefs.layers.jaeger && l && ageMin(l) < 180;
+    let m = hunterMarkers[id];
+    if (!show) { if (m) { map.removeLayer(m); delete hunterMarkers[id]; } continue; }
+    const text = hunterLabel(id) + ' ' + (ageMin(l) < 2 ? '' : Math.round(ageMin(l)) + "'");
+    const icon = chipIcon(text.trim(), 'chip-hunter' + (ageMin(l) > 10 ? ' chip-old' : ''));
+    if (!m) {
+      m = hunterMarkers[id] = L.marker([l.lat, l.lng], { icon, zIndexOffset: 880 }).addTo(map);
+      m.bindPopup(() => { const x = latest(id); return `<div class="label">Jäger · ${timeHM(x.created_at)} · ${agoText(x.created_at)}</div><div style="font-family:var(--font-display);font-size:22px;text-transform:uppercase">${esc(hunterLabel(id))}</div>${state.me ? `<div>${formatDistance(distanceM(state.me, x))} · zu Fuss ca. ${walkMin(distanceM(state.me, x))} min</div>` : ''}`; });
+    } else { m.setLatLng([l.lat, l.lng]); m.setIcon(icon); }
+  }
+}
+
+function ensureName() {
+  if (hunterName) return;
+  const box = document.createElement('div');
+  box.className = 'lightbox ls-anim-settle';
+  box.innerHTML = `<div class="gate" style="min-height:auto;flex:1"><div class="display d-m">Dein Name</div>
+    <div class="label" style="margin-top:8px">Damit der andere Jäger dich auf der Karte sieht und Notizen zugeordnet werden.</div>
+    <label class="field"><input id="hn2" maxlength="16" autocomplete="given-name"></label>
+    <button class="btn solid block" id="hn2-ok" style="margin-top:16px">Speichern</button></div>`;
+  document.body.appendChild(box);
+  box.querySelector('#hn2-ok').onclick = () => {
+    const v = box.querySelector('#hn2').value.trim(); if (!v) return;
+    hunterName = v.toUpperCase(); localStorage.setItem(NAME_KEY, hunterName); box.remove();
+  };
+}
+
+/* ===================== Notizen und Zeichnungen ===================== */
+
+let itemLayers = {};
+const notes = () => state.items.filter((i) => i.kind === 'note');
+const drawings = () => state.items.filter((i) => i.kind === 'drawing');
+
+function drawItems() {
+  if (!map) return;
+  const keep = new Set();
+  for (const it of state.items) {
+    const key = String(it.id);
+    const visible = it.kind === 'note' ? prefs.layers.notizen && it.lat != null : prefs.layers.zeichnungen;
+    if (!visible) continue;
+    keep.add(key);
+    if (itemLayers[key] && itemLayers[key]._v === it.updated_at) continue;
+    if (itemLayers[key]) map.removeLayer(itemLayers[key]);
+    let layer;
+    if (it.kind === 'note') {
+      layer = L.marker([it.lat, it.lng], { icon: chipIcon('NOTIZ', 'chip-note'), zIndexOffset: 600 });
+      layer.bindPopup(() => `<div class="label">Notiz · ${esc(it.author || '')} · ${timeHM(it.created_at)}</div><div style="margin:6px 0;white-space:pre-wrap">${esc(it.data.text || '')}</div><button class="btn small quiet" data-del-item="${it.id}">Löschen</button>`);
+    } else {
+      layer = L.polyline(it.data.pts || [], { color: it.data.color || '#6E8CA8', weight: 4, opacity: 0.9, lineCap: 'round', lineJoin: 'round' });
+      layer.bindPopup(() => `<div class="label">Zeichnung · ${esc(it.author || '')} · ${timeHM(it.created_at)}</div><button class="btn small quiet" style="margin-top:6px" data-del-item="${it.id}">Löschen</button>`);
+    }
+    layer._v = it.updated_at;
+    layer.addTo(map);
+    itemLayers[key] = layer;
+  }
+  for (const key of Object.keys(itemLayers)) if (!keep.has(key)) { map.removeLayer(itemLayers[key]); delete itemLayers[key]; }
+}
+
+async function addNote(text, pos) {
+  text = (text || '').trim(); if (!text) return;
+  try {
+    await store.addItem({ kind: 'note', data: { text }, lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, author: hunterName });
+  } catch (e) { toast('Notiz', /hunter_items/.test(String(e.message || e)) ? 'Datenbank-Erweiterung 02 fehlt' : 'Speichern fehlgeschlagen'); }
+}
+
+async function deleteItem(id) {
+  if (!confirm('Wirklich löschen?')) return;
+  try { await store.deleteItem(Number(id)); state.items = state.items.filter((i) => String(i.id) !== String(id)); drawItems(); renderNotes(); }
+  catch { toast('Löschen', 'Fehlgeschlagen'); }
+}
+
+function renderNotes() {
+  const el = $('#notes-wrap'); if (!el || state.tab !== 'notes') return;
+  const list = notes().slice().reverse();
+  el.innerHTML = `
+    <div class="section-head"><h2 class="display d-s">Notizen</h2><span class="label">Für beide Jäger · live</span></div>
+    <textarea id="note-text" rows="4" placeholder="Idee, Beobachtung, Plan …" style="margin-top:16px"></textarea>
+    <label class="layer-row" style="padding:10px 0;border:0"><input type="checkbox" class="check" id="note-geo" ${state.me ? 'checked' : ''}><span class="name">Mit meinem Standort auf der Karte</span></label>
+    <div class="btn-row"><button class="btn solid" id="note-save">Speichern</button></div>
+    <div class="label" style="margin-top:8px">Auf der Karte lange drücken: Notiz genau an diesem Ort.</div>
+    <div class="section">
+      ${list.length ? list.map((n) => `<div class="note-row">
+        <div class="row"><span class="label">${timeHM(n.created_at)} · ${esc(n.author || '')}</span>
+          <span>${n.lat != null ? `<button class="btn small quiet" data-note-map="${n.id}">Karte</button> ` : ''}<button class="btn small quiet" data-note-edit="${n.id}">Ändern</button> <button class="btn small quiet" data-del-item="${n.id}">Weg</button></span></div>
+        <div class="note-text">${esc(n.data.text || '')}</div></div>`).join('') : '<div class="label">Noch keine Notizen</div>'}
+    </div>
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Zeichnungen</h2><span class="label">${pad2(drawings().length)}</span></div>
+      <div class="btn-row" style="margin-top:12px"><button class="btn" id="draw-start">Auf der Karte zeichnen</button>${drawings().length ? '<button class="btn quiet" id="draw-clear">Alle löschen</button>' : ''}</div>
+    </div>`;
+  $('#note-save').onclick = async () => {
+    const pos = $('#note-geo').checked && state.me ? state.me : null;
+    if ($('#note-geo').checked && !state.me) toast('Notiz', '"Ich" ist aus, Notiz ohne Ort gespeichert');
+    await addNote($('#note-text').value, pos);
+    $('#note-text').value = '';
+  };
+  el.querySelectorAll('[data-del-item]').forEach((b) => b.onclick = () => deleteItem(b.dataset.delItem));
+  el.querySelectorAll('[data-note-map]').forEach((b) => b.onclick = () => {
+    const n = state.items.find((i) => String(i.id) === b.dataset.noteMap); if (!n) return;
+    if (!state.desk) setTab('map');
+    setTimeout(() => { map.setView([n.lat, n.lng], Math.max(map.getZoom(), 16)); const l = itemLayers[String(n.id)]; if (l) l.openPopup(); }, 60);
+  });
+  el.querySelectorAll('[data-note-edit]').forEach((b) => b.onclick = async () => {
+    const n = state.items.find((i) => String(i.id) === b.dataset.noteEdit); if (!n) return;
+    const t = prompt('Notiz ändern', n.data.text || ''); if (t == null) return;
+    try { await store.updateItem(n.id, { data: { ...n.data, text: t } }); } catch { toast('Notiz', 'Fehlgeschlagen'); }
+  });
+  $('#draw-start').onclick = () => { if (!state.desk) setTab('map'); setDrawing(true); };
+  if ($('#draw-clear')) $('#draw-clear').onclick = async () => {
+    if (!confirm('Alle Zeichnungen löschen?')) return;
+    for (const d of drawings()) await store.deleteItem(d.id).catch(() => {});
+    state.items = state.items.filter((i) => i.kind !== 'drawing'); drawItems(); renderNotes();
+  };
+}
+
+/* ---- Zeichenmodus: Finger oder Maus zeichnet, Karte steht still ---- */
+
+const DRAW_COLORS = [['#6E8CA8', 'Steel'], ['#0C0C0E', 'Ink'], ['#7A7A74', 'Ash']];
+let stroke = null;
+
+function setDrawing(on) {
+  state.drawing = on;
+  $('#b-draw').classList.toggle('on', on);
+  const bar = $('#drawbar');
+  bar.hidden = !on;
+  const c = map.getContainer();
+  c.classList.toggle('drawing', on);
+  if (on) {
+    map.dragging.disable(); map.touchZoom.disable(); map.doubleClickZoom.disable(); map.boxZoom.disable();
+    bar.innerHTML = `<span class="label">Zeichnen</span>${DRAW_COLORS.map(([col, n]) => `<button class="swatch ${state.drawColor === col ? 'on' : ''}" data-col="${col}" title="${n}" style="background:${col}"></button>`).join('')}
+      <button class="btn small" id="draw-undo">Zurück</button><button class="btn small solid" id="draw-done">Fertig</button>`;
+    bar.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { state.drawColor = b.dataset.col; setDrawing(true); });
+    $('#draw-done').onclick = () => setDrawing(false);
+    $('#draw-undo').onclick = async () => {
+      const mine = drawings().filter((d) => d.author === hunterName); const last = mine[mine.length - 1];
+      if (last) { await store.deleteItem(last.id).catch(() => {}); state.items = state.items.filter((i) => i.id !== last.id); drawItems(); }
+    };
+  } else {
+    map.dragging.enable(); map.touchZoom.enable(); map.doubleClickZoom.enable(); map.boxZoom.enable();
+  }
+}
+
+function initDrawing() {
+  const c = map.getContainer();
+  const pt = (e) => { const r = c.getBoundingClientRect(); return L.point(e.clientX - r.left, e.clientY - r.top); };
+  c.addEventListener('pointerdown', (e) => {
+    if (!state.drawing || e.target.closest('.map-overlay, .drawbar, .layers, .leaflet-popup')) return;
+    e.preventDefault(); e.stopPropagation();
+    c.setPointerCapture(e.pointerId);
+    const p = pt(e);
+    stroke = { last: p, pts: [map.containerPointToLatLng(p)], line: L.polyline([], { color: state.drawColor, weight: 4, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map) };
+  }, true);
+  c.addEventListener('pointermove', (e) => {
+    if (!stroke) return;
+    e.preventDefault(); e.stopPropagation();
+    const p = pt(e);
+    if (p.distanceTo(stroke.last) < 4) return;
+    stroke.last = p; stroke.pts.push(map.containerPointToLatLng(p)); stroke.line.setLatLngs(stroke.pts);
+  }, true);
+  const end = async (e) => {
+    if (!stroke) return;
+    e.preventDefault(); e.stopPropagation();
+    const s = stroke; stroke = null;
+    map.removeLayer(s.line);
+    if (s.pts.length < 2) return;
+    const pts = s.pts.map((ll) => [+ll.lat.toFixed(6), +ll.lng.toFixed(6)]);
+    try { await store.addItem({ kind: 'drawing', data: { pts, color: state.drawColor }, author: hunterName }); }
+    catch (err) { toast('Zeichnen', /hunter_items/.test(String(err.message || err)) ? 'Datenbank-Erweiterung 02 fehlt' : 'Speichern fehlgeschlagen'); }
+  };
+  c.addEventListener('pointerup', end, true);
+  c.addEventListener('pointercancel', end, true);
+}
+
+/* ===================== Popups: Knoepfe darin verdrahten ===================== */
+
+function initPopupActions() {
+  map.on('popupopen', (ev) => {
+    const el = ev.popup.getElement(); if (!el) return;
+    const ll = ev.popup.getLatLng();
+    el.querySelectorAll('[data-del-item]').forEach((b) => b.onclick = () => { map.closePopup(); deleteItem(b.dataset.delItem); });
+    el.querySelectorAll('[data-car-here]').forEach((b) => b.onclick = () => { map.closePopup(); setCar(ll.lat, ll.lng); });
+    el.querySelectorAll('[data-note-here]').forEach((b) => b.onclick = () => { const t = prompt('Notiz an diesem Ort'); map.closePopup(); if (t) addNote(t, { lat: ll.lat, lng: ll.lng }); });
+    el.querySelectorAll('[data-dep]').forEach((b) => b.onclick = () => loadDepartures(b.dataset.dep, el.querySelector('.deps'), ev.popup));
+    el.querySelectorAll('[data-proof]').forEach((b) => b.onclick = () => openProof(b.dataset.proof));
+  });
+}
+
+/* ===================== Abfahrten (VVS) ===================== */
+
+async function loadDepartures(name, box, popup) {
+  if (!box) return;
+  box.innerHTML = '<div class="label">Lädt …</div>';
+  popup && popup.update();
+  try {
+    const r = await fetch('/api/departures?name=' + encodeURIComponent(name));
+    if (!r.ok) throw new Error(String(r.status));
+    const j = await r.json();
+    const rows = j.departures.slice(0, 10).map((d) => {
+      const plan = new Date(d.planned), est = d.est ? new Date(d.est) : null;
+      const delay = est ? Math.round((est - plan) / 60000) : 0;
+      const inMin = Math.max(0, Math.round(((est || plan) - Date.now()) / 60000));
+      return `<div class="dep"><b>${esc(d.line)}</b><span>${esc(d.dest)}</span><i>${timeHM(plan)}${delay > 0 ? ' +' + delay : ''} · ${inMin}'</i></div>`;
+    }).join('');
+    box.innerHTML = `<div class="label" style="margin:6px 0 4px">${esc(j.stop)}</div>${rows || '<div class="label">Keine Abfahrten</div>'}`;
+  } catch {
+    box.innerHTML = `<div class="label">Fahrplan nicht erreichbar. <a href="https://www.vvs.de/" target="_blank" rel="noopener">vvs.de</a></div>`;
+  }
+  popup && popup.update();
+}
+
+/* ===================== Prognose: wohin als naechstes ===================== */
+
+function bearingDeg(a, b) {
+  const rad = Math.PI / 180;
+  const y = Math.sin((b.lng - a.lng) * rad) * Math.cos(b.lat * rad);
+  const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lng - a.lng) * rad);
+  return (Math.atan2(y, x) / rad + 360) % 360;
+}
+
+/* Punkte pro offenem Ort: Naehe (je naeher, desto wahrscheinlicher), Bewegungsrichtung
+   (liegt der Ort voraus?) und anstehende Pflichttermine. Pro Aufgabe zaehlt nur der beste Ort. */
+function prognosis(id) {
+  const l = latest(id); if (!l) return [];
+  const mo = motion(id);
+  const now = Date.now();
+  const best = {};
+  for (const p of openPois()) {
+    const d = distanceM(l, p);
+    let score = Math.exp(-d / 2500);
+    const why = [formatDistance(d)];
+    if (mo && d > 150) {
+      const diff = Math.abs(((bearingDeg(l, p) - bearingDeg(mo.from, mo.to)) + 540) % 360 - 180);
+      const f = 0.6 + 0.8 * Math.max(0, Math.cos(diff * Math.PI / 180));
+      score *= f;
+      if (diff < 45) why.push('in Bewegungsrichtung');
+    }
+    const appt = APPOINTMENTS.find((a) => p.tasks.includes(a.id));
+    if (appt) {
+      const toStart = (new Date(appt.start).getTime() - now) / 60000;
+      const ended = new Date(appt.end).getTime() < now;
+      if (ended) continue;
+      if (toStart <= 0) { score *= 4; why.push('Termin läuft'); }
+      else if (toStart < 180) { score *= 1 + 3 * (1 - toStart / 180); why.push('Termin in ' + Math.round(toStart) + ' min'); }
+      else score *= 0.3;
+    }
+    const key = p.tasks.join(',');
+    if (!best[key] || best[key].score < score) best[key] = { p, d, score, why };
+  }
+  const list = Object.values(best).sort((a, b) => b.score - a.score);
+  const total = list.reduce((s, x) => s + x.score, 0) || 1;
+  return list.slice(0, 3).map((x) => ({ ...x, pct: Math.round((x.score / total) * 100) }));
+}
+
+/* ===================== Pflichttermine pruefen ===================== */
+
+const APPT_RADIUS = 150;
+/* Laengste zusammenhaengende Anwesenheit im Zeitfenster: aufeinanderfolgende Signale
+   innerhalb von 150 m (plus Messgenauigkeit), Luecken bis 25 min zaehlen durch. */
+function apptCheck(a) {
+  const s = new Date(a.start).getTime() - 10 * 60e3, e = new Date(a.end).getTime() + 10 * 60e3;
+  const now = Date.now();
+  const per = BANDIT_IDS().map((id) => {
+    const pts = (state.locs[id] || []).filter((p) => { const t = new Date(p.created_at).getTime(); return t >= s && t <= e; });
+    let bestMin = 0, runStart = null, prevT = null, anyIn = false;
+    for (const p of pts) {
+      const t = new Date(p.created_at).getTime();
+      const inside = distanceM(p, a) <= APPT_RADIUS + Math.min(p.accuracy || 0, 100);
+      if (inside) {
+        anyIn = true;
+        if (runStart === null || t - prevT > 25 * 60e3) runStart = t;
+        prevT = t;
+        bestMin = Math.max(bestMin, (t - runStart) / 60000);
+      } else { runStart = null; prevT = null; }
+    }
+    return { id, pts: pts.length, anyIn, min: Math.round(bestMin) };
+  });
+  const status = now < s ? 'kommt' : now <= e ? 'laeuft' : 'vorbei';
+  return { status, per };
+}
+
+function apptHtml(a) {
+  const c = apptCheck(a);
+  const head = isDone(a.id) ? 'ABGEHAKT' : c.status === 'kommt' ? untilText(a.start) : c.status === 'laeuft' ? 'LÄUFT' : 'VORBEI';
+  const rows = c.status === 'kommt' ? '' : c.per.map((p) => {
+    const ok = p.min >= a.stay;
+    const txt = !p.pts ? 'keine Signale im Fenster' : !p.anyIn ? `${p.pts} Signale, nie vor Ort` : ok ? `erfüllt · gemessen ${p.min} min` : `${p.min} von ${a.stay} min gemessen`;
+    return `<div class="lage-row"><span class="label">${esc(playerName(state.players, p.id))}</span><span class="value ${ok ? '' : 'muted'}">${esc(txt.toUpperCase())}</span><span></span></div>`;
+  }).join('');
+  return `<div class="appt-check"><div class="row"><span class="value">T${a.n} ${esc(a.place.toUpperCase())}</span><span class="label">${head}</span></div>
+    <div class="label" style="margin:2px 0 4px">${esc(a.day)} ${esc(a.window)} · Pflicht ${a.stay} min · Radius ${APPT_RADIUS} m</div>${rows}</div>`;
+}
+
+/* ===================== Beweisfotos auf der Karte ===================== */
+
+let proofMarkers = {};
+function drawProofs() {
+  if (!map) return;
+  const keep = new Set();
+  for (const p of state.proofs) {
+    if (p.lat == null || !prefs.layers.fotos) continue;
+    const key = String(p.id); keep.add(key);
+    if (proofMarkers[key]) continue;
+    const t = TASKS.find((x) => x.id === p.task_id) || APPOINTMENTS.find((x) => x.id === p.task_id);
+    const code = t ? (t.title ? pad2(t.n) : 'T' + t.n) : '';
+    const m = L.marker([p.lat, p.lng], { icon: chipIcon('FOTO ' + code, 'chip-proof'), zIndexOffset: 700 }).addTo(map);
+    m.bindPopup(() => `<div class="label">Beweis ${code} · ${esc(playerName(state.players, p.uploaded_by))} · ${timeHM(p.created_at)}</div>
+      ${p.url && !(p.kind || '').startsWith('video') ? `<img src="${esc(p.url)}" alt="" style="width:200px;margin:6px 0;cursor:pointer" data-proof="${p.id}">` : `<button class="btn small" style="margin:6px 0" data-proof="${p.id}">Ansehen</button>`}
+      <div class="muted">${p.geo_source === 'exif' ? 'Ort aus dem Foto (GPS)' : 'Ort des Handys beim Hochladen'}</div>`);
+    proofMarkers[key] = m;
+  }
+  for (const key of Object.keys(proofMarkers)) if (!keep.has(key)) { map.removeLayer(proofMarkers[key]); delete proofMarkers[key]; }
 }
 
 /* ===================== Aufgaben (nur lesen) ===================== */
@@ -906,8 +1286,13 @@ function openProof(id) {
   lb.className = 'lightbox ls-anim-settle';
   lb.innerHTML = `<div class="lb-bar"><span class="label">${task ? pad2(task.n) : ''} · ${esc(playerName(state.players, p.uploaded_by))} · ${timeHM(p.created_at)}</span><button class="btn small">Schliessen</button></div>
     <div class="lb-media">${isVideo ? `<video src="${esc(p.url)}" controls playsinline autoplay></video>` : `<img src="${esc(p.url)}" alt="">`}</div>
-    <a class="label" href="${esc(p.url)}" target="_blank" rel="noopener" style="align-self:flex-start;margin-top:16px">Original öffnen</a>`;
+    <div class="btn-row" style="margin-top:16px;align-items:center">
+      <a class="label" href="${esc(p.url)}" target="_blank" rel="noopener">Original öffnen</a>
+      ${p.lat != null ? `<span class="label">${formatCoordinate(p.lat, p.lng)} · ${p.geo_source === 'exif' ? 'aus dem Foto' : 'Handy beim Upload'}</span><button class="btn small" data-lb-map>Auf Karte</button>` : ''}
+    </div>`;
   lb.querySelector('button').onclick = () => lb.remove();
+  const mb = lb.querySelector('[data-lb-map]');
+  if (mb) mb.onclick = () => { lb.remove(); if (!state.desk) setTab('map'); setTimeout(() => map.setView([p.lat, p.lng], Math.max(map.getZoom(), 17)), 60); };
   document.body.appendChild(lb);
 }
 
@@ -975,6 +1360,15 @@ function buildExport() {
     if (!list.length) continue;
     out.push(`- ${playerName(state.players, id)}: ` + list.map((n) => `${n.poi.name} ${formatDistance(n.d).toLowerCase()}`).join('; '));
   }
+  out.push('');
+  out.push('PROGNOSE DER APP (Nähe, Richtung, Termine)');
+  for (const id of BANDIT_IDS()) {
+    const pr = prognosis(id);
+    if (pr.length) out.push(`- ${playerName(state.players, id)}: ` + pr.map((x) => `${x.p.name} ${x.pct}% (${x.why.join(', ')})`).join('; '));
+  }
+  out.push('');
+  out.push('PFLICHTTERMINE ANWESENHEIT');
+  APPOINTMENTS.forEach((a) => { const c = apptCheck(a); out.push(`- T${a.n} ${a.place}: ${c.status}` + (c.status === 'kommt' ? '' : ', ' + c.per.map((x) => `${playerName(state.players, x.id)} ${x.min} von ${a.stay} min`).join(', '))); });
   const hs = hotspots().slice(0, 8);
   if (hs.length) {
     out.push('');
@@ -1019,7 +1413,8 @@ function addLoc(row) {
 async function loadAll(initial) {
   try {
     const since = new Date(Date.now() - 5 * 24 * 3600e3).toISOString();
-    const [players, locs, completions, proofs] = await Promise.all([store.getPlayers(), store.getLocations(since), store.getCompletions(), store.getProofs()]);
+    const [players, locs, completions, proofs, items] = await Promise.all([store.getPlayers(), store.getLocations(since), store.getCompletions(), store.getProofs(), store.getItems().catch(() => [])]);
+    state.items = items;
     state.players = players;
     state.locs = {};
     locs.forEach(addLoc);
@@ -1027,7 +1422,7 @@ async function loadAll(initial) {
     state.proofs = proofs;
     evaluateProximity(true);
     refreshPoiIcons(); buildLive();
-    drawPlayers(); drawCar(); renderCards(); renderTasks(); renderLage();
+    drawPlayers(); drawCar(); drawHunters(); drawItems(); drawProofs(); renderCards(); renderTasks(); renderLage(); renderNotes();
     if (initial) fitAll();
   } catch (e) {
     console.error(e);
@@ -1043,6 +1438,7 @@ function onEvent({ table, type, row }) {
   } else if (table === 'locations' && type === 'INSERT') {
     addLoc(row);
     if (row.player_id === 'car') { drawCar(); renderCards(); renderLage(); return; }
+    if (row.player_id.startsWith('h:')) { drawHunters(); renderLage(); return; }
     drawPlayers(); evaluateProximity(false); renderCards(); renderLage();
   } else if (table === 'completions') {
     const before = state.completions[row.task_id];
@@ -1060,6 +1456,16 @@ function onEvent({ table, type, row }) {
     renderTasks();
     refreshPoiIcons(); buildLive(); evaluateProximity(true); renderCards(); renderLage();
     if (state.tab === 'export') renderExport();
+  } else if (table === 'hunter_items') {
+    if (type === 'DELETE') state.items = state.items.filter((i) => i.id !== row.id);
+    else {
+      const i = state.items.findIndex((x) => x.id === row.id);
+      if (i >= 0) state.items[i] = row; else {
+        state.items.push(row);
+        if (row.author && row.author !== hunterName) toast(row.kind === 'note' ? 'Notiz · ' + row.author : 'Zeichnung · ' + row.author, row.kind === 'note' ? (row.data.text || '').slice(0, 120) : 'Neue Zeichnung auf der Karte', 'detective');
+      }
+    }
+    drawItems(); renderNotes();
   } else if (table === 'proofs') {
     if (type === 'DELETE') state.proofs = state.proofs.filter((p) => p.id !== row.id);
     else if (!state.proofs.some((p) => p.id === row.id)) {
@@ -1067,12 +1473,13 @@ function onEvent({ table, type, row }) {
       const t = TASKS.find((x) => x.id === row.task_id);
       toast('Neuer Beweis', (t ? pad2(t.n) + ' ' + t.title : row.task_id) + ' · ' + playerName(state.players, row.uploaded_by), 'bandit');
     }
-    renderTasks();
+    renderTasks(); drawProofs();
   }
 }
 
 function start() {
   renderShell();
+  ensureName();
   loadAll(true);
   store.subscribe(onEvent, (s) => {
     if (DEMO) return;
@@ -1081,7 +1488,7 @@ function start() {
   });
   pushActive().then((on) => { state.push = on; renderPush(); });
   /* "vor X Min" und Ausgrauen alter Signale laufend aktualisieren */
-  setInterval(() => { drawPlayers(); renderCards(); renderLage(); }, 30000);
+  setInterval(() => { drawPlayers(); drawHunters(); renderCards(); renderLage(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(false); });
 }
 

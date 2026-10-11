@@ -304,3 +304,37 @@ body.hunter #toasts { top: auto; bottom: calc(72px + var(--safe-bottom)); flex-d
   .hunter .sheet-handle { padding: 10px 16px; }
   .hunter .sheet-handle #sheet-sum { color: var(--bone); }
 }
+
+/* ---- Jaeger, Notizen, Fotos auf der Karte ---- */
+.chip-hunter { background: var(--steel); color: var(--ink); border: 2px solid var(--ink); font-size: 12px; padding: 3px 6px; }
+.chip-old { opacity: 0.55; }
+.chip-note { background: var(--ink); color: var(--steel); border: 2px solid var(--steel); font-size: 11px; }
+.chip-proof { background: var(--orange); color: var(--ink); border: 2px solid var(--ink); font-size: 10px; padding: 2px 4px; }
+
+/* ---- Zeichnen ---- */
+.leaflet-container.drawing { cursor: crosshair; touch-action: none; }
+.drawbar { position: absolute; z-index: 950; left: 8px; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 8px; background: var(--ink); border: 2px solid var(--bone); padding: 8px 12px; flex-wrap: wrap; }
+.drawbar .label { margin-right: auto; }
+.swatch { width: 32px; height: 32px; border: 2px solid var(--bone); cursor: pointer; padding: 0; }
+.swatch.on { outline: 3px solid var(--bone); outline-offset: 2px; }
+body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
+
+/* ---- Notizen ---- */
+.note-row { padding: 12px 0; border-bottom: 1px solid var(--ash-26); }
+.note-row .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.note-row .btn.small { min-height: 28px; padding: 2px 8px; font-size: 10px; }
+.note-text { margin-top: 6px; white-space: pre-wrap; font-size: 15px; line-height: 1.45; }
+
+/* ---- Abfahrten im Popup ---- */
+.deps { margin-top: 6px; max-height: 240px; overflow-y: auto; }
+.dep { display: grid; grid-template-columns: 44px 1fr auto; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--ash-26); font-size: 12px; }
+.dep b { font-weight: 400; background: var(--bone); color: var(--ink); text-align: center; padding: 0 4px; }
+.dep span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dep i { font-style: normal; color: var(--ash); font-variant-numeric: tabular-nums; }
+
+/* ---- Pflichttermin-Pruefung ---- */
+.appt-check { padding: 12px 0; border-bottom: 1px solid var(--ash-26); }
+.appt-check .row { display: flex; justify-content: space-between; gap: 8px; }
+
+.mobile-tabs, .side-tabs { grid-template-columns: repeat(5, 1fr); }
+.tabs button { font-size: 10px; letter-spacing: 0.06em; padding: 0 2px; }

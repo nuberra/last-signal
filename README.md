@@ -17,6 +17,10 @@ Ohne Supabase-Daten in `js/config.js` läuft die App im **Demo-Modus** (Daten nu
 2. **SQL Editor → New query**, Inhalt von `supabase/schema.sql` einfügen, **Run**. Damit gibt es Tabellen, Echtzeit und den Speicher-Bucket `proofs`.
 3. **Project Settings → API**: `Project URL` und den `anon public`-Schlüssel in `js/config.js` eintragen (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
 
+## 1b. Erweiterung 02 (Notizen, Zeichnungen, Foto-Orte)
+
+Im SQL Editor einmal `supabase/migration-02.sql` ausführen. Bei einer neuen Datenbank ist sie in `schema.sql` schon enthalten.
+
 ## 2. Vercel (ca. 3 Min.)
 
 1. Repo zu GitHub pushen, auf vercel.com **Add New → Project**, Repo wählen.
