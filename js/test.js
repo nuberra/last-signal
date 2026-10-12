@@ -108,6 +108,12 @@ function render() {
           ${result('p-osm-out')}
         </div>`)}
 
+      ${section('OwnTracks-Einrichtung', 'Link für Marvin und Julien', `
+        <div class="label" style="padding:8px 0">OWNTRACKS_PASSWORD eingeben (wie in Vercel). Daraus entsteht pro Gejagtem ein Link. Den Link per Nachricht schicken: Er erklärt die Installation, und ein Tipp überträgt alle Einstellungen in OwnTracks. Das Passwort steht nur im Link und geht nicht an den Server.</div>
+        <input id="otl-pw" type="password" placeholder="OwnTracks-Passwort" class="test-input">
+        <button class="btn small" id="otl-go" style="margin-top:8px">Links erzeugen</button>
+        <div id="otl-out" style="margin-top:8px"></div>`)}
+
       ${section('Öffnungszeiten', 'Zu einem Zeitpunkt', `
         <input type="datetime-local" id="oh-at" class="test-input" value="2026-10-31T19:30">
         <button class="btn small" id="oh-run" style="margin-top:8px">Prüfen</button>
@@ -289,6 +295,23 @@ function bind() {
       const r = await loadRoutes(o.oepnv, true);
       say('p-osm-out', `${o.oepnv.length} Haltestellen, ${o.gym.length} Gyms, ${o.spielplatz.length} Spielplätze, ${o.cafe.length} Cafés, ${o.apotheke.length} Apotheken, ${r.length} Linienverläufe (${[...new Set(r.map((x) => x.ref))].sort().join(' ')})`);
     } catch (e) { say('p-osm-out', 'OpenStreetMap nicht erreichbar: ' + (e.message || e), false); }
+  };
+  $('#otl-go').onclick = () => {
+    const pw = $('#otl-pw').value.trim();
+    if (!pw) return ($('#otl-out').innerHTML = '<div class="test-out label bad">Passwort fehlt</div>');
+    $('#otl-out').innerHTML = CONFIG.BANDITS.map((b) => {
+      const cfg = {
+        _type: 'configuration', mode: 3, url: location.origin + '/api/owntracks', auth: true,
+        username: b.name.toLowerCase(), password: pw, deviceId: 'handy', tid: b.name.slice(0, 2).toUpperCase(),
+        monitoring: 2, locatorDisplacement: 50, locatorInterval: 300,
+      };
+      const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const link = location.origin + '/ot.html#' + b64;
+      return `<div class="test-row"><div><div class="value">${esc(b.name)}</div><div class="label" style="word-break:break-all">${esc(link)}</div></div>
+        <div style="display:grid;gap:6px"><button class="btn small" data-copy="${esc(link)}">Kopieren</button>${navigator.share ? `<button class="btn small" data-share="${esc(link)}" data-name="${esc(b.name)}">Teilen</button>` : ''}</div></div>`;
+    }).join('');
+    $('#otl-out').querySelectorAll('[data-copy]').forEach((x) => x.onclick = async () => { try { await navigator.clipboard.writeText(x.dataset.copy); toast('Link', 'Kopiert'); } catch { prompt('Link kopieren', x.dataset.copy); } });
+    $('#otl-out').querySelectorAll('[data-share]').forEach((x) => x.onclick = () => navigator.share({ title: 'OwnTracks für ' + x.dataset.name, text: 'Last Signal: OwnTracks einrichten', url: x.dataset.share }).catch(() => {}));
   };
   $('#oh-run').onclick = () => {
     const t = new Date($('#oh-at').value);

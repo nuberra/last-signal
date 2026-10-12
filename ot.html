@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Last Signal — OwnTracks einrichten</title>
+<meta name="theme-color" content="#0C0C0E">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/icons/pin.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<!-- Einrichtungsseite fuer die Gejagten. Die Konfiguration steht im #-Teil der Adresse
+     und wird nie an den Server geschickt. -->
+<div class="gate">
+  <img class="mark" src="/icons/pin.svg" alt="">
+  <div class="label">Last Signal · Bandits</div>
+  <h1 class="display d-l" style="margin-top:8px">OwnTracks einrichten</h1>
+  <div id="who" class="display d-s" style="color:var(--orange);margin-top:8px"></div>
+  <ol class="ot-steps">
+    <li><span class="label">Schritt 1</span>OwnTracks installieren:
+      <div class="btn-row" style="margin-top:8px">
+        <a class="btn small" href="https://apps.apple.com/app/owntracks/id692424691">iPhone</a>
+        <a class="btn small" href="https://play.google.com/store/apps/details?id=org.owntracks.android">Android</a>
+      </div></li>
+    <li><span class="label">Schritt 2</span>OwnTracks einmal öffnen und den Standort <b>immer</b> erlauben. iPhone zusätzlich: Einstellungen → OwnTracks → Standort → Immer, Genauer Standort an.</li>
+    <li><span class="label">Schritt 3</span>Diesen Knopf tippen. OwnTracks fragt, ob die Einstellungen übernommen werden sollen: Ja.
+      <a class="btn solid block" id="go" style="margin-top:8px">In OwnTracks übernehmen</a></li>
+    <li><span class="label">Schritt 4</span>In OwnTracks auf der Karte oben den Modus <b>Move</b> wählen und einmal <b>Publish</b> (Hochladen) tippen.</li>
+  </ol>
+  <details style="margin-top:16px"><summary class="label">Falls der Knopf nicht geht: von Hand eintragen</summary>
+    <div id="manual" class="kv" style="margin-top:12px"></div></details>
+  <div class="label error" id="err"></div>
+</div>
+<script type="module">
+  const err = document.getElementById('err');
+  try {
+    const raw = decodeURIComponent(location.hash.slice(1));
+    const std = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const b64 = std + '='.repeat((4 - (std.length % 4)) % 4);
+    const cfg = JSON.parse(decodeURIComponent(escape(atob(b64))));
+    document.getElementById('who').textContent = cfg.username.toUpperCase();
+    document.getElementById('go').href = 'owntracks:///config?inline=' + encodeURIComponent(b64);
+    const rows = [['Mode', 'HTTP'], ['URL', cfg.url], ['UserID', cfg.username], ['Password', cfg.password], ['DeviceID', cfg.deviceId], ['TrackerID', cfg.tid]];
+    document.getElementById('manual').innerHTML = rows.map(([k, v]) => `<span class="label">${k}</span><span class="value" style="word-break:break-all">${v}</span>`).join('');
+  } catch {
+    err.textContent = 'LINK UNVOLLSTÄNDIG. NEUEN LINK VOM ADMIN ANFORDERN.';
+    document.getElementById('go').removeAttribute('href');
+  }
+</script>
+</body>
+</html>

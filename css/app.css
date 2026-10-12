@@ -388,3 +388,6 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
 .test-input { width: 100%; margin-top: 6px; font-family: var(--font-mono); font-size: 14px; color: var(--bone); background: var(--ink); border: 2px solid var(--ash-26); padding: 8px; }
 .plan-row { padding: 8px 0; align-items: flex-start; }
 .plan-row .name { text-transform: none; letter-spacing: 0.02em; font-size: 13px; }
+.ot-steps { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 16px; }
+.ot-steps li { border-left: 8px solid var(--orange); padding-left: 16px; line-height: 1.45; }
+.ot-steps .label { display: block; margin-bottom: 4px; }

@@ -44,7 +44,7 @@ Push kommt bei: jeder erledigten Aufgabe bzw. jedem Pflichttermin, und wenn ein 
 
 **Jäger:** Seite `/jaeger` öffnen, auf dem iPhone zuerst **Teilen → Zum Home-Bildschirm** und von dort öffnen (iOS 16.4+), dann oben **Push** tippen und erlauben. Android und Desktop-Chrome: direkt **Push** tippen.
 
-**Gejagte — OwnTracks** (sendet auch bei gesperrtem Handy):
+**Gejagte — OwnTracks** (sendet auch bei gesperrtem Handy). Am einfachsten: In der Testzentrale unter "OwnTracks-Einrichtung" das Passwort eingeben, den Link pro Gejagtem erzeugen und schicken. Die Seite erklärt die Installation, ein Tipp überträgt die Einstellungen. Von Hand:
 1. App **OwnTracks** installieren (App Store / Play Store, kostenlos).
 2. Einstellungen / Preferences → Connection:
    - Mode: **HTTP**
