@@ -371,3 +371,20 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
   .hunter .map-tools { display: grid; grid-template-columns: repeat(2, auto); gap: 6px; }
   .hunter .map-tools .btn { min-height: 34px; padding: 4px 8px; font-size: 10px; }
 }
+
+/* ---- Testzentrale ---- */
+.test-map { height: 50vh; min-height: 280px; margin-top: 12px; border: 2px solid var(--bone); }
+.test-grid { display: grid; gap: 0; margin-top: 12px; }
+.hc { display: grid; grid-template-columns: 1fr 64px; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--ash-26); }
+.hc > .label:last-child { grid-column: 1 / -1; }
+.hc.ok .value { color: var(--ink); background: var(--bone); text-align: center; }
+.hc.bad .value { color: var(--bone); border: 1px solid var(--bone); text-align: center; }
+.test-list { margin-top: 8px; }
+.test-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--ash-26); }
+.test-row .label { margin-top: 4px; text-transform: none; letter-spacing: 0.04em; font-size: 12px; }
+.test-out { margin: 6px 0 4px; color: var(--bone); text-transform: none; letter-spacing: 0.02em; font-size: 12px; min-height: 0; }
+.test-out:empty { display: none; }
+.test-out.bad { color: var(--orange); }
+.test-input { width: 100%; margin-top: 6px; font-family: var(--font-mono); font-size: 14px; color: var(--bone); background: var(--ink); border: 2px solid var(--ash-26); padding: 8px; }
+.plan-row { padding: 8px 0; align-items: flex-start; }
+.plan-row .name { text-transform: none; letter-spacing: 0.02em; font-size: 13px; }

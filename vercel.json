@@ -1,6 +1,6 @@
 {
   "cleanUrls": false,
-  "rewrites": [{ "source": "/jaeger", "destination": "/jaeger.html" }],
+  "rewrites": [{ "source": "/jaeger", "destination": "/jaeger.html" }, { "source": "/test", "destination": "/test.html" }],
   "headers": [
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }, { "key": "Service-Worker-Allowed", "value": "/" }] },
     { "source": "/js/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },

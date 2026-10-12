@@ -7,7 +7,9 @@ import { CONFIG } from '../js/config.js';
 const LIMIT_MIN = 25;
 
 export default async function handler(req, res) {
-  if (!inGame()) return res.status(200).json({ skipped: 'ausserhalb der Spielzeit' });
+  /* ?test=1 aus der Testzentrale: auch ausserhalb der Spielzeit pruefen */
+  const test = req.query && req.query.test === '1';
+  if (!test && !inGame()) return res.status(200).json({ skipped: 'ausserhalb der Spielzeit' });
   const out = [];
   for (const b of CONFIG.BANDITS) {
     const [last] = await supa('locations?select=created_at&player_id=eq.' + b.id + '&order=created_at.desc&limit=1');

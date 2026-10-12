@@ -55,6 +55,10 @@ Push kommt bei: jeder erledigten Aufgabe bzw. jedem Pflichttermin, und wenn ein 
 4. Überwachungsmodus auf der Karte in OwnTracks auf **Significant** (sparsam) oder **Move** (laufend, mehr Akku) stellen. Im Spiel: Move, wenn der Akku reicht.
 5. Testen: in OwnTracks **Publish** / Hochladen-Symbol tippen; der Punkt erscheint bei den Jägern.
 
+## Testen vor dem Spiel
+
+`https://<projekt>.vercel.app/test` (Jäger-Passwort) öffnet die Testzentrale: Systemcheck, Gejagte per Tipp auf die Karte simulieren, fertige Szenarien (Halt und S-Bahn-Fahrt, Annäherung mit Alarm, Funkstille, Aufgabe mit Foto), Test-Push, OwnTracks-Test, Abfahrten, Öffnungszeiten zu beliebigem Zeitpunkt, Testplan zum Abhaken und Aufräumen. Simulierte Signale sind als `test` markiert und lassen sich einzeln löschen; vor dem Spiel "Alles zurücksetzen".
+
 ## 4. Verteilen
 
 - **Gejagte**: Link `/` schicken. Öffnen, MARVIN oder JULIEN wählen, Standort erlauben, dann **Zum Home-Bildschirm**. Im Spiel die Seite offen lassen und **Bildschirm wach** aktivieren: Browser senden keinen Standort, wenn das Handy gesperrt ist. **Jetzt senden** ist der Fallback.

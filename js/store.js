@@ -47,6 +47,20 @@ function supabaseStore() {
       }
     },
     getItems: () => q((c) => c.from('hunter_items').select('*').order('created_at', { ascending: true })),
+    /* Testzentrale: nur Testdaten (source = 'test') oder alles loeschen */
+    async resetData(all) {
+      await ready;
+      const del = (t, f) => f(client.from(t).delete()).then(({ error }) => { if (error && !/hunter_items/.test(error.message)) throw error; });
+      if (all) {
+        await del('locations', (x) => x.gte('id', 0));
+        await del('completions', (x) => x.neq('task_id', ''));
+        await del('proofs', (x) => x.gte('id', 0));
+        await del('hunter_items', (x) => x.gte('id', 0));
+      } else {
+        await del('locations', (x) => x.eq('source', 'test'));
+        await del('hunter_items', (x) => x.eq('kind', 'silence'));
+      }
+    },
     addItem: (it) => q((c) => c.from('hunter_items').insert(it).select()),
     updateItem: (id, patch) => q((c) => c.from('hunter_items').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select()),
     deleteItem: (id) => q((c) => c.from('hunter_items').delete().eq('id', id)),
@@ -135,6 +149,12 @@ function demoStore() {
       row && emit({ table: 'proofs', type: 'DELETE', row });
     },
     getItems: async () => db().hunter_items,
+    async resetData(all) {
+      const d = db();
+      d.locations = all ? [] : d.locations.filter((l) => l.source !== 'test');
+      if (all) { d.completions = []; d.proofs = []; d.hunter_items = []; }
+      save(d);
+    },
     async addItem(it) {
       const d = db();
       const row = { id: d.seq++, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...it };

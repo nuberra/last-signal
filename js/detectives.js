@@ -1699,7 +1699,8 @@ function renderExport() {
       <textarea id="import-text" rows="6" placeholder="Antwort mit dem JSON-Block einfügen"></textarea>
       <label class="layer-row" style="padding:10px 0;border:0"><input type="checkbox" class="check" id="import-replace" checked><span class="name">Alte KI-Ziele ersetzen</span></label>
       <div class="btn-row"><button class="btn solid" id="import-go">Importieren</button></div>
-    </div>`;
+    </div>
+    <div class="section"><a class="label" href="/test.html" target="_blank">Testzentrale öffnen</a></div>`;
   $('#import-go').onclick = async () => {
     try {
       const k = await importClaude($('#import-text').value, $('#import-replace').checked);
