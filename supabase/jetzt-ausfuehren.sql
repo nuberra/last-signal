@@ -1,5 +1,5 @@
 -- LAST SIGNAL — alles Ausstehende in einem Schritt (Erweiterung 02 + 03).
--- Kann gefahrlos mehrfach ausgefuehrt werden. Vorher unten last-signal-delta.vercel.app ersetzen.
+-- Kann gefahrlos mehrfach ausgefuehrt werden. Vercel-Adresse ist eingetragen.
 
 
 create table if not exists public.hunter_items (
