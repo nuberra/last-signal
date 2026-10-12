@@ -1,5 +1,5 @@
 -- LAST SIGNAL — alles Ausstehende in einem Schritt (Erweiterung 02 + 03).
--- Kann gefahrlos mehrfach ausgefuehrt werden. Vorher unten <DEIN-PROJEKT> ersetzen.
+-- Kann gefahrlos mehrfach ausgefuehrt werden. Vorher unten last-signal-delta.vercel.app ersetzen.
 
 
 create table if not exists public.hunter_items (
@@ -35,5 +35,5 @@ create extension if not exists pg_net;
 
 select cron.unschedule('ls-silence') where exists (select 1 from cron.job where jobname = 'ls-silence');
 select cron.schedule('ls-silence', '*/5 * * * *', $$
-  select net.http_get(url := 'https://<DEIN-PROJEKT>/api/silence');
+  select net.http_get(url := 'https://last-signal-delta.vercel.app/api/silence');
 $$);
