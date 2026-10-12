@@ -2,7 +2,7 @@
    OwnTracks sendet auch bei gesperrtem Handy. Anmeldung per Benutzer (marvin / julien)
    und dem Passwort aus der Vercel-Variable OWNTRACKS_PASSWORD.
    Antwort muss ein JSON-Array sein, sonst meldet die App einen Fehler. */
-import { readJson, supa, checkProximity } from './_lib.js';
+import { readJson, insertLocation, checkProximity, notifySignal } from './_lib.js';
 import { CONFIG } from '../js/config.js';
 
 function basicAuth(req) {
@@ -25,16 +25,14 @@ export default async function handler(req, res) {
     const msg = await readJson(req);
     if (msg._type !== 'location' || typeof msg.lat !== 'number' || typeof msg.lon !== 'number') return res.status(200).json([]);
     const ts = typeof msg.tst === 'number' ? new Date(msg.tst * 1000) : new Date();
-    await supa('locations', {
-      method: 'POST',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify({
-        player_id: slot.id, lat: msg.lat, lng: msg.lon,
-        accuracy: typeof msg.acc === 'number' ? Math.round(msg.acc) : null,
-        source: 'owntracks', created_at: ts.toISOString(),
-      }),
+    await insertLocation({
+      player_id: slot.id, lat: msg.lat, lng: msg.lon,
+      accuracy: typeof msg.acc === 'number' ? Math.round(msg.acc) : null,
+      source: 'owntracks', created_at: ts.toISOString(),
+      battery: typeof msg.batt === 'number' ? Math.round(msg.batt) : null,
+      charging: typeof msg.bs === 'number' ? msg.bs === 2 || msg.bs === 3 : null,
     });
-    await checkProximity(slot.id).catch(() => {});
+    await Promise.all([checkProximity(slot.id).catch(() => {}), notifySignal(slot.id, 'owntracks').catch(() => {})]);
     return res.status(200).json([]);
   } catch (e) {
     console.error(e);

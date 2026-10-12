@@ -338,3 +338,36 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
 
 .mobile-tabs, .side-tabs { grid-template-columns: repeat(5, 1fr); }
 .tabs button { font-size: 10px; letter-spacing: 0.06em; padding: 0 2px; }
+
+/* ---- Oeffnungszeiten, Halte, Linien, KI ---- */
+.poi i { font-style: normal; padding: 5px 6px; background: var(--ash); color: var(--ink); }
+.poi-closed { border-style: dashed; }
+.poi-closed b { background: var(--ash); color: var(--ink); }
+.chip-stay { background: var(--bone); color: var(--ink); border: 3px solid var(--ink); font-size: 11px; }
+.chip-next { background: var(--ink); color: var(--bone); border: 1px dashed var(--bone); font-size: 10px; padding: 2px 4px; }
+.chip-ki { background: var(--bone); color: var(--ink); border: 2px dashed var(--ink); font-size: 12px; padding: 3px 6px; }
+.silence { margin-top: 6px; display: inline-block; background: var(--bone); color: var(--ink); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; padding: 2px 6px; }
+.race { margin-top: 4px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ash); }
+.race-win { color: var(--bone); }
+.hot-num { background: var(--bone); color: var(--ink); padding: 0 4px; }
+
+/* ---- Zeitregler ---- */
+.replaybar { gap: 12px; }
+.replaybar input[type=range] { flex: 1; min-width: 140px; accent-color: var(--bone); }
+
+/* ---- Kompass ---- */
+.compass { position: fixed; inset: 0; z-index: 3000; background: var(--ink); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: calc(16px + var(--safe-top)) 16px calc(24px + var(--safe-bottom)); }
+.compass .lb-bar { width: 100%; display: flex; justify-content: space-between; align-items: center; }
+.cp-targets { display: flex; gap: 8px; }
+.cp-dial { position: relative; width: min(72vw, 360px); aspect-ratio: 1; border: 2px solid var(--bone); margin-top: 16px; }
+.cp-dial::before { content: ""; position: absolute; inset: 15%; border: 1px solid var(--ash-26); }
+.cp-arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transition: transform var(--dur-fast) linear; }
+.cp-arrow::before { content: ""; position: absolute; left: -22px; top: -150px; border-left: 22px solid transparent; border-right: 22px solid transparent; border-bottom: 64px solid var(--orange); }
+.cp-arrow::after { content: ""; position: absolute; left: -4px; top: -90px; width: 8px; height: 90px; background: var(--orange); }
+.cp-n { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 12px; color: var(--ash); display: none; }
+.cp-dial.north-up .cp-n { display: block; }
+.cp-dist { font-size: 64px; line-height: 1; }
+@media (max-width: 1023px) {
+  .hunter .map-tools { display: grid; grid-template-columns: repeat(2, auto); gap: 6px; }
+  .hunter .map-tools .btn { min-height: 34px; padding: 4px 8px; font-size: 10px; }
+}

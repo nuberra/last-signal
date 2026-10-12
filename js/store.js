@@ -22,7 +22,15 @@ function supabaseStore() {
     ready,
     getPlayers: () => q((c) => c.from('players').select('*')),
     upsertPlayer: (p) => q((c) => c.from('players').upsert({ ...p, updated_at: new Date().toISOString() }).select()),
-    addLocation: (l) => q((c) => c.from('locations').insert(l).select()),
+    /* Ohne Erweiterung 03 fehlen battery/charging: dann ohne Akku speichern. */
+    async addLocation(l) {
+      try { return await q((c) => c.from('locations').insert(l).select()); }
+      catch (e) {
+        if (!('battery' in l || 'charging' in l) || !/battery|charging|column/i.test(String(e.message || e))) throw e;
+        const { battery, charging, ...rest } = l;
+        return q((c) => c.from('locations').insert(rest).select());
+      }
+    },
     getLocations: (sinceIso) => q((c) => c.from('locations').select('*').gte('created_at', sinceIso).order('created_at', { ascending: true }).limit(5000)),
     getCompletions: () => q((c) => c.from('completions').select('*')),
     setCompletion: (task_id, done, by) => q((c) => c.from('completions').upsert({

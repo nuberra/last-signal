@@ -1,8 +1,9 @@
 /* LAST SIGNAL — Ansicht der Jäger. Karte, Aufgaben, Export. */
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
-import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M } from './data.js';
-import { loadOsm, cachedOsm } from './osm.js';
+import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, GAME_START, GAME_END } from './data.js';
+import { loadOsm, cachedOsm, loadRoutes } from './osm.js';
+import { openState, openText, windowsUntil, stays, walkMin, driveMin, transitMin, guessLines, hm, DAYS } from './hunt.js';
 import {
   $, esc, pad2, formatCoordinate, distanceM, formatDistance, timeHM, agoText, toast, beep, unlockAudio,
   registerSW, statusText, playerName, playerColor, pushSupported, enablePush, pushActive,
@@ -14,7 +15,7 @@ const PREF_KEY = 'ls-hunter-prefs';
 const STALE_MIN = 30;
 const root = $('#root');
 
-const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: true, zeichnungen: true, jaeger: true };
+const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: true, zeichnungen: true, jaeger: true, halte: true };
 let prefs = { layers: { ...DEFAULT_LAYERS }, rings: true, reach: true, tiles: 'light', route: 'all', sheet: false };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
@@ -115,10 +116,13 @@ function renderShell() {
           <button class="btn" id="b-me">Ich</button>
           <button class="btn" id="b-car">Auto</button>
           <button class="btn" id="b-draw">Zeichnen</button>
+          <button class="btn" id="b-compass">Kompass</button>
+          <button class="btn" id="b-time">Verlauf</button>
           <button class="btn" id="b-tiles"></button>
         </div>
         <div class="layers" id="layers" hidden></div>
         <div class="drawbar" id="drawbar" hidden></div>
+        <div class="drawbar replaybar" id="replaybar" hidden></div>
         <div class="map-overlay map-bottom">
           <div class="sheet ${prefs.sheet ? '' : 'collapsed'}" id="sheet">
             <div class="sheet-handle" id="sheet-handle"><span class="label">Bandits</span><span class="label" id="sheet-sum"></span></div>
@@ -156,6 +160,13 @@ function renderShell() {
   $('#b-me').onclick = toggleMe;
   $('#b-tiles').onclick = () => { prefs.tiles = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length]; savePrefs(); applyTiles(); };
   $('#b-draw').onclick = () => setDrawing(!state.drawing);
+  $('#b-time').onclick = toggleReplay;
+  $('#b-compass').onclick = () => {
+    const ids = BANDIT_IDS().filter((id) => latest(id));
+    if (!ids.length) return toast('Kompass', 'Noch kein Signal');
+    const near = state.me ? ids.sort((a, b) => distanceM(state.me, latest(a)) - distanceM(state.me, latest(b)))[0] : ids[0];
+    openCompass(near);
+  };
   $('#b-car').onclick = () => {
     state.placingCar = !state.placingCar;
     $('#b-car').classList.toggle('on', state.placingCar);
@@ -250,15 +261,17 @@ function sqIcon(size, fill, border, cls = '') {
 /* Ortsmarke: Nummer der Aufgabe + Kurzwort, Name ab Zoom 16. Keine Icons, nur Wortlabels. */
 function poiIcon(c, it) {
   const code = it.code || it.tasks.map(taskCode).join(' ');
+  const st = openState(it.hours);
+  const closed = !st.always && !st.open;
   return L.divIcon({
     className: 'ls-poi',
-    html: `<div class="poi poi-${c.id} ${poiDone(it) ? 'poi-done' : ''}"><b>${esc(code)}</b><span>${esc(c.tag)}</span><em>${esc(it.name)}</em></div>`,
+    html: `<div class="poi poi-${c.id} ${poiDone(it) ? 'poi-done' : ''} ${closed ? 'poi-closed' : ''}"><b>${esc(code)}</b><span>${esc(c.tag)}</span>${closed ? '<i>ZU</i>' : ''}<em>${esc(it.name)}</em></div>`,
     iconSize: [0, 0], iconAnchor: [0, 0],
   });
 }
 
-function chipIcon(text, cls) {
-  return L.divIcon({ className: 'ls-poi', html: `<div class="chip ${cls}">${esc(text)}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+function chipIcon(text, cls, style = '') {
+  return L.divIcon({ className: 'ls-poi', html: `<div class="chip ${cls}" style="${style}">${esc(text)}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] });
 }
 
 function initMap() {
@@ -325,6 +338,7 @@ function poiPopup(it, c) {
   return `<div class="label">${esc(c.label)}</div>
     <div style="margin:4px 0 8px;font-family:var(--font-display);font-size:22px;line-height:1;text-transform:uppercase">${esc(it.name)}</div>
     ${tasks.map((t) => `<div class="muted">${pad2(t.n)} ${esc(t.title || t.place)} · ${isDone(t.id) ? 'ERLEDIGT' : 'OFFEN'}</div>`).join('')}
+    ${it.hours ? `<div style="margin-top:4px">${esc(openText(openState(it.hours)))} · heute ${esc(openState(it.hours).today)}</div>` : ''}
     <div class="muted" style="margin-top:4px">${formatCoordinate(it.lat, it.lng)}</div>
     ${rows ? '<hr class="rule" style="margin:8px 0">' + rows : ''}
     ${car ? `<div>Auto: ca. ${driveMin(distanceM(car, it))} min · <a href="${gmaps(car, it, 'driving')}" target="_blank" rel="noopener">Route</a></div>` : ''}
@@ -367,6 +381,7 @@ async function loadLive(force) {
     state.osm = await loadOsm(force);
     state.osmStatus = 'ok';
     buildLive();
+    loadLines(force);
   } catch (e) {
     console.error(e);
     state.osm = state.osm || cachedOsm();
@@ -472,6 +487,7 @@ function renderLayers() {
     ${row('jaeger', 'Anderer Jäger', String(hunterIds().length))}
     ${row('notizen', 'Notizen mit Ort', pad2(notes().filter((n) => n.lat != null).length))}
     ${row('zeichnungen', 'Zeichnungen', pad2(drawings().length))}
+    ${row('halte', 'Halte ab 10 min', '')}
     ${row('fotos', 'Beweisfotos', pad2(state.proofs.filter((p) => p.lat != null).length), 'Ort aus Foto oder Handy')}
     <div class="layer-row" data-reach="1"><input type="checkbox" class="check" ${prefs.reach ? 'checked' : ''} tabindex="-1"><span class="name">Reichweite seit Signal<small>${REACH_M_PER_MIN} M pro Minute</small></span></div>
     <div style="padding:12px 16px">
@@ -482,7 +498,7 @@ function renderLayers() {
   $('#l-close').onclick = () => { el.hidden = true; $('#b-layers').classList.remove('on'); };
   el.querySelectorAll('[data-layer]').forEach((r) => r.onclick = () => {
     prefs.layers[r.dataset.layer] = !prefs.layers[r.dataset.layer]; savePrefs();
-    applyLayers(); renderLayers(); evaluateProximity(true); renderCards(); drawItems(); drawProofs(); drawHunters();
+    applyLayers(); renderLayers(); evaluateProximity(true); renderCards(); drawItems(); drawProofs(); drawHunters(); drawStays();
   });
   el.querySelector('[data-rings]').onclick = () => { prefs.rings = !prefs.rings; savePrefs(); applyLayers(); renderLayers(); };
   el.querySelector('[data-reach]').onclick = () => { prefs.reach = !prefs.reach; savePrefs(); drawPlayers(); renderLayers(); };
@@ -524,7 +540,7 @@ function drawPlayers() {
   const since = routeSince();
   for (const id of BANDIT_IDS()) {
     const color = mapColor(id);
-    const pts = state.locs[id] || [];
+    const pts = visiblePts(id);
     let pl = playerLayers[id];
     if (!pl) {
       pl = playerLayers[id] = {
@@ -542,9 +558,9 @@ function drawPlayers() {
       L.circleMarker([p.lat, p.lng], { renderer: canvas(), radius: 4, color: '#0C0C0E', weight: 1, fillColor: color, fillOpacity: 1 })
         .bindTooltip(timeHM(p.created_at) + (p.source === 'owntracks' ? ' · OT' : ''), { className: 'ls-tip' }).addTo(pl.dots);
     });
-    const l = latest(id);
+    const l = shownLatest(id);
     if (!l) { if (pl.marker) { map.removeLayer(pl.marker); pl.marker = null; } map.removeLayer(pl.reach); map.removeLayer(pl.acc); continue; }
-    const age = ageMin(l);
+    const age = state.replayT ? 0 : ageMin(l);
     const reachR = Math.min(age * REACH_M_PER_MIN, 10000);
     if (prefs.reach && age >= 2) { pl.reach.setLatLng([l.lat, l.lng]).setRadius(reachR); if (!map.hasLayer(pl.reach)) pl.reach.addTo(map); }
     else map.removeLayer(pl.reach);
@@ -647,8 +663,6 @@ function drawCar() {
 }
 
 /* ---- Zeitschaetzung: Luftlinie mit Umwegfaktor. Echte Route ueber Google Maps. ---- */
-const walkMin = (d) => Math.max(1, Math.round((d * 1.3) / 80));          // 4.8 km/h
-const driveMin = (d) => Math.max(2, Math.round(3 + (d * 1.4) / 370));     // ~22 km/h Stadt + 3 min Parken
 function gmaps(from, to, mode) {
   return `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}&travelmode=${mode}`;
 }
@@ -760,10 +774,13 @@ function bindCards(el) {
 
 function cardExtra(id, l) {
   const parts = [];
+  const bt = batteryText(id); if (bt) parts.push(bt);
   const mo = motion(id); if (mo) parts.push(mo.dir + ' ' + mo.kmh.toFixed(1) + ' KM/H');
   const st = nearestStation(l); if (st) parts.push(st.s[2].toUpperCase() + ' ' + formatDistance(st.d));
   const car = carPos(); if (car) parts.push('AUTO ' + driveMin(distanceM(car, l)) + ' MIN');
-  return parts.length ? `<div class="label" style="margin-top:6px;color:var(--bone-60)">${esc(parts.join(' · '))}</div>` : '';
+  return (silent(l) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(l))} MIN</div>` : '')
+    + (parts.length ? `<div class="label" style="margin-top:6px;color:var(--bone-60)">${esc(parts.join(' · '))}</div>` : '')
+    + lineHtml(id);
 }
 
 function cardsHtml(ids, nearCount) {
@@ -820,6 +837,9 @@ function renderLage() {
       ${st ? line('Haltestelle', `${esc(st.s[2].toUpperCase())} ${st.s[3]} · ${formatDistance(st.d)}`) : ''}
       ${mo ? line('Bewegung', `${mo.dir} · ${mo.kmh.toFixed(1)} KM/H`) : ''}
       ${age >= 2 ? line('Reichweite', `bis ca. ${formatDistance(Math.min(age * REACH_M_PER_MIN, 10000))}`) : ''}
+      ${batteryText(id) ? line('Akku', batteryText(id)) : ''}
+      ${lineHtml(id)}
+      <button class="btn small" style="margin-top:8px" data-compass="${id}">Kompass</button>
     </div>`;
   }).join('');
 
@@ -842,7 +862,7 @@ function renderLage() {
     <div class="section">
       <div class="section-head"><h2 class="display d-s">Prognose</h2><span class="label">Nächster Ort</span></div>
       ${BANDIT_IDS().map((id) => { const pr = prognosis(id); return pr.length ? `<div class="pcard" style="--pc:${playerColor(id)}"><div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span></div>
-        ${pr.map((x) => `<div class="hot-row" data-ll="${x.p.lat},${x.p.lng}" style="grid-template-columns:48px 1fr"><span class="num hot-rank">${x.pct}%</span><div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div><div class="label" style="margin-top:2px">${esc(x.why.join(' · '))}</div></div></div>`).join('')}</div>` : ''; }).join('') || '<div class="label" style="padding:8px 0">Noch kein Signal</div>'}
+        ${pr.map((x) => `<div class="hot-row" data-ll="${x.p.lat},${x.p.lng}" style="grid-template-columns:48px 1fr"><span class="num hot-rank">${x.pct}%</span><div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div><div class="label" style="margin-top:2px">${esc(x.why.join(' · '))}</div>${raceHtml(id, x.p)}</div></div>`).join('')}</div>` : ''; }).join('') || '<div class="label" style="padding:8px 0">Noch kein Signal</div>'}
       <div class="label" style="padding:8px 0">Gewichtet nach Nähe, Bewegungsrichtung und anstehenden Pflichtterminen. Nur offene Orte.</div>
     </div>
 
@@ -850,6 +870,16 @@ function renderLage() {
       <div class="section-head"><h2 class="display d-s">Jäger</h2></div>
       ${hunterIds().map((id) => { const l = latest(id); return `<div class="lage-row" data-ll="${l.lat},${l.lng}"><span class="label">${esc(hunterLabel(id))}</span><span class="value">${agoText(l.created_at)}${me ? ' · ' + formatDistance(distanceM(me, l)) : ''}</span><span></span></div>`; }).join('')}
     </div>` : ''}
+
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Letzte Chance</h2><span class="label">Öffnungszeiten bis Spielende</span></div>
+      ${lastChanceHtml()}
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Halte</h2><span class="label">Ab 10 min an einem Ort</span></div>
+      ${BANDIT_IDS().map((id) => stays(state.locs[id] || []).slice(-5).reverse().map((st) => { const np = nearestPoiAny(st); return `<div class="lage-row" data-ll="${st.lat},${st.lng}"><span class="label">${esc(playerName(state.players, id))}</span><span class="value">${hm(st.from)}–${hm(st.to)} · ${st.min} MIN${np && np.d < 300 ? ' · ' + esc(np.p.name.toUpperCase()) : ''}</span><span></span></div>`; }).join('')).join('') || '<div class="label" style="padding:8px 0">Noch keine Halte</div>'}
+    </div>
 
     <div class="section">
       <div class="section-head"><h2 class="display d-s">Pflichttermine</h2><span class="label">Anwesenheit aus Signalen</span></div>
@@ -892,6 +922,7 @@ function renderLage() {
   $('#car-map').onclick = () => { state.placingCar = true; $('#b-car').classList.add('on'); if (!state.desk) setTab('map'); toast('Auto', 'Auf die Karte tippen, wo das Auto steht', 'detective'); };
   if ($('#car-clear')) $('#car-clear').onclick = clearCar;
   if ($('#osm-retry')) $('#osm-retry').onclick = () => loadLive(true);
+  el.querySelectorAll('[data-compass]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); openCompass(b.dataset.compass); });
 }
 
 /* ===================== Jaeger untereinander ===================== */
@@ -950,6 +981,7 @@ function drawItems() {
   if (!map) return;
   const keep = new Set();
   for (const it of state.items) {
+    if (it.kind !== 'note' && it.kind !== 'drawing') continue;
     const key = String(it.id);
     const visible = it.kind === 'note' ? prefs.layers.notizen && it.lat != null : prefs.layers.zeichnungen;
     if (!visible) continue;
@@ -958,7 +990,8 @@ function drawItems() {
     if (itemLayers[key]) map.removeLayer(itemLayers[key]);
     let layer;
     if (it.kind === 'note') {
-      layer = L.marker([it.lat, it.lng], { icon: chipIcon('NOTIZ', 'chip-note'), zIndexOffset: 600 });
+      const ki = it.data.source === 'claude';
+      layer = L.marker([it.lat, it.lng], { icon: chipIcon(ki ? 'KI' + (it.data.pct != null ? ' ' + it.data.pct + '%' : '') : 'NOTIZ', ki ? 'chip-ki' : 'chip-note'), zIndexOffset: 600 });
       layer.bindPopup(() => `<div class="label">Notiz · ${esc(it.author || '')} · ${timeHM(it.created_at)}</div><div style="margin:6px 0;white-space:pre-wrap">${esc(it.data.text || '')}</div><button class="btn small quiet" data-del-item="${it.id}">Löschen</button>`);
     } else {
       layer = L.polyline(it.data.pts || [], { color: it.data.color || '#6E8CA8', weight: 4, opacity: 0.9, lineCap: 'round', lineJoin: 'round' });
@@ -1041,6 +1074,7 @@ function setDrawing(on) {
   const c = map.getContainer();
   c.classList.toggle('drawing', on);
   if (on) {
+    if (!state.desk) { prefs.sheet = false; $('#sheet').classList.add('collapsed'); }
     map.dragging.disable(); map.touchZoom.disable(); map.doubleClickZoom.disable(); map.boxZoom.disable();
     bar.innerHTML = `<span class="label">Zeichnen</span>${DRAW_COLORS.map(([col, n]) => `<button class="swatch ${state.drawColor === col ? 'on' : ''}" data-col="${col}" title="${n}" style="background:${col}"></button>`).join('')}
       <button class="btn small" id="draw-undo">Zurück</button><button class="btn small solid" id="draw-done">Fertig</button>`;
@@ -1149,6 +1183,12 @@ function prognosis(id) {
       score *= f;
       if (diff < 45) why.push('in Bewegungsrichtung');
     }
+    const st = poiOpen(p);
+    if (!st.always && !st.open) {
+      const wait = st.next ? (st.next - now) / 60000 : Infinity;
+      if (wait > 60) { score *= 0.15; why.push(st.next ? 'zu bis ' + DAYS[st.next.getDay()] + ' ' + hm(st.next) : 'zu'); }
+      else why.push('öffnet ' + hm(st.next));
+    } else if (st.open && st.until && (st.until - now) / 60000 < 45) { score *= 0.6; why.push('schliesst ' + hm(st.until)); }
     const appt = APPOINTMENTS.find((a) => p.tasks.includes(a.id));
     if (appt) {
       const toStart = (new Date(appt.start).getTime() - now) / 60000;
@@ -1224,6 +1264,249 @@ function drawProofs() {
     proofMarkers[key] = m;
   }
   for (const key of Object.keys(proofMarkers)) if (!keep.has(key)) { map.removeLayer(proofMarkers[key]); delete proofMarkers[key]; }
+}
+
+/* ===================== Oeffnungszeiten, Wettlauf, letzte Chance ===================== */
+
+const poiOpen = (p, t = new Date()) => openState(p.hours, t);
+
+/* Schnellste Ankunft der Jaeger an einem Ziel: zu Fuss, mit dem Auto (zu Fuss zum Auto +
+   Fahrt) oder der andere Jaeger zu Fuss. */
+function ourEta(to) {
+  const opts = [];
+  const car = carPos();
+  if (state.me) opts.push({ min: walkMin(distanceM(state.me, to)), how: 'zu Fuss' });
+  if (car) opts.push({ min: (state.me ? walkMin(distanceM(state.me, car)) : 0) + driveMin(distanceM(car, to)), how: 'Auto' });
+  for (const id of hunterIds()) { const l = latest(id); if (l && ageMin(l) < 30) opts.push({ min: walkMin(distanceM(l, to)), how: hunterLabel(id) }); }
+  return opts.sort((a, b) => a.min - b.min)[0] || null;
+}
+
+function raceHtml(id, to) {
+  const l = latest(id); if (!l) return '';
+  const them = transitMin(distanceM(l, to)) - Math.round(ageMin(l));   // seit dem Signal schon unterwegs
+  const us = ourEta(to);
+  const sie = them > 0 ? `SIE ca. ${them}'` : 'SIE KÖNNTEN SCHON DORT SEIN';
+  if (!us) return `<div class="race">${sie} · für eure Zeit "Ich" oder Auto setzen</div>`;
+  const diff = Math.max(0, them) - us.min;
+  return `<div class="race ${diff >= 0 ? 'race-win' : ''}">${sie} · IHR ${us.min}' (${esc(us.how)}) · ${diff >= 0 ? diff + "' VORSPRUNG" : -diff + "' ZU SPÄT"}</div>`;
+}
+
+/* Offene Aufgaben mit begrenzten Oeffnungszeiten: wie viel Zeit bleibt bis Spielende? */
+function lastChanceHtml() {
+  const now = new Date(), end = new Date(GAME_END);
+  const rows = [];
+  for (const t of TASKS) {
+    if (isDone(t.id)) continue;
+    const places = allPois().filter((p) => p.tasks.includes(t.id) && p.hours);
+    if (!places.length) continue;
+    const wins = windowsUntil(places[0].hours, now, end) || [];
+    const min = wins.reduce((s, w) => s + w.min, 0);
+    rows.push({ t, wins, min, open: poiOpen(places[0]) });
+  }
+  if (!rows.length) return '<div class="label" style="padding:8px 0">Keine offenen Aufgaben mit Öffnungszeiten</div>';
+  return rows.sort((a, b) => a.min - b.min).map((r) => `<div class="lage-row" style="grid-template-columns:40px 1fr">
+    <span class="num ${r.min < 600 ? 'hot-num' : ''}">${pad2(r.t.n)}</span>
+    <div><div class="value">${esc(r.t.title.toUpperCase())}</div>
+    <div class="label" style="margin-top:2px">${r.wins.length ? esc(r.wins.slice(0, 4).map((w) => w.text).join(' · ')) : 'Bis Spielende nicht mehr offen'}</div>
+    <div class="label" style="margin-top:2px;color:var(--bone)">${esc(openText(r.open))}</div></div></div>`).join('');
+}
+
+/* ===================== Funkstille, Akku ===================== */
+
+const SILENCE_MIN = 25;
+/* Bei offener Seite: einmal pro Funkstille Meldung und Ton. */
+const silenceWarned = {};
+function checkSilence() {
+  for (const id of BANDIT_IDS()) {
+    const l = latest(id);
+    if (!silent(l) || silenceWarned[id] === l.created_at) continue;
+    silenceWarned[id] = l.created_at;
+    toast('Funkstille ' + playerName(state.players, id), 'Seit ' + Math.round(ageMin(l)) + ' Minuten kein Signal', 'bandit');
+    if (state.soundOn) beep('alarm');
+  }
+}
+const silent = (l) => l && ageMin(l) >= SILENCE_MIN && Date.now() >= new Date(GAME_START).getTime() && Date.now() <= new Date(GAME_END).getTime();
+const lastBattery = (id) => { const a = state.locs[id] || []; for (let i = a.length - 1; i >= 0; i--) if (a[i].battery != null) return a[i]; return null; };
+function batteryText(id) {
+  const b = lastBattery(id); if (!b) return '';
+  return 'AKKU ' + b.battery + '%' + (b.charging ? ' LÄDT' : '') + (ageMin(b) > 30 ? ' (' + timeHM(b.created_at) + ')' : '');
+}
+
+/* ===================== Kompass ===================== */
+
+let compass = null;
+function openCompass(target) {
+  closeCompass();
+  const el = document.createElement('div');
+  el.className = 'compass ls-anim-settle';
+  el.innerHTML = `<div class="lb-bar"><span class="label" id="cp-title"></span><button class="btn small" id="cp-close">Schliessen</button></div>
+    <div class="cp-targets">${BANDIT_IDS().map((id) => `<button class="btn small ${id === target ? 'on' : ''}" data-cp="${id}">${esc(playerName(state.players, id))}</button>`).join('')}</div>
+    <div class="cp-dial"><div class="cp-arrow" id="cp-arrow"></div><div class="cp-n">N</div></div>
+    <div class="cp-dist num" id="cp-dist">--</div>
+    <div class="label" id="cp-info" style="text-align:center"></div>
+    <button class="btn" id="cp-perm" hidden>Kompass erlauben</button>`;
+  document.body.appendChild(el);
+  compass = { el, target, heading: null, lastVib: 0 };
+  el.querySelector('#cp-close').onclick = closeCompass;
+  el.querySelectorAll('[data-cp]').forEach((b) => b.onclick = () => openCompass(b.dataset.cp));
+  if (meWatch === null) toggleMe();
+  const onOri = (e) => {
+    let h = null;
+    if (typeof e.webkitCompassHeading === 'number') h = e.webkitCompassHeading;
+    else if (e.absolute && typeof e.alpha === 'number') h = 360 - e.alpha;
+    if (h != null) { compass.heading = h; updateCompass(); }
+  };
+  compass.onOri = onOri;
+  const start = () => { window.addEventListener('deviceorientationabsolute', onOri); window.addEventListener('deviceorientation', onOri); };
+  if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    const b = el.querySelector('#cp-perm'); b.hidden = false;
+    b.onclick = async () => { try { if (await DeviceOrientationEvent.requestPermission() === 'granted') { b.hidden = true; start(); } } catch { toast('Kompass', 'Nicht erlaubt'); } };
+  } else start();
+  compass.timer = setInterval(updateCompass, 1000);
+  updateCompass();
+}
+
+function closeCompass() {
+  if (!compass) return;
+  window.removeEventListener('deviceorientationabsolute', compass.onOri);
+  window.removeEventListener('deviceorientation', compass.onOri);
+  clearInterval(compass.timer);
+  compass.el.remove(); compass = null;
+}
+
+function updateCompass() {
+  if (!compass) return;
+  const l = latest(compass.target);
+  const el = compass.el;
+  el.querySelector('#cp-title').textContent = 'Kompass · ' + playerName(state.players, compass.target);
+  if (!l) { el.querySelector('#cp-dist').textContent = '--'; el.querySelector('#cp-info').textContent = 'Kein Signal'; return; }
+  if (!state.me) { el.querySelector('#cp-info').textContent = 'Eigener Standort wird bestimmt'; return; }
+  const d = distanceM(state.me, l);
+  const brg = bearingDeg(state.me, l);
+  const rot = compass.heading == null ? brg : brg - compass.heading;
+  el.querySelector('#cp-arrow').style.transform = `rotate(${rot}deg)`;
+  el.querySelector('.cp-dial').classList.toggle('north-up', compass.heading == null);
+  el.querySelector('#cp-dist').textContent = d < 1000 ? Math.round(d) + ' M' : (d / 1000).toFixed(2) + ' KM';
+  el.querySelector('#cp-info').textContent = `Signal ${timeHM(l.created_at)} · ${agoText(l.created_at)} · ±${l.accuracy ?? '?'} M · ich ±${Math.round(state.me.acc)} M` + (compass.heading == null ? ' · ohne Kompass: Norden oben' : '');
+  /* Vibration: je naeher, desto haeufiger */
+  const every = d < 50 ? 1500 : d < 150 ? 3000 : d < 400 ? 6000 : 0;
+  if (every && navigator.vibrate && Date.now() - compass.lastVib > every) { navigator.vibrate(d < 50 ? [120, 60, 120] : 80); compass.lastVib = Date.now(); }
+}
+
+/* ===================== Halte und Zeitregler ===================== */
+
+let stayLayer = null;
+function drawStays() {
+  if (!map) return;
+  if (!stayLayer) stayLayer = L.layerGroup().addTo(map);
+  stayLayer.clearLayers();
+  if (!prefs.layers.halte) return;
+  for (const id of BANDIT_IDS()) {
+    for (const s of stays(visiblePts(id))) {
+      const m = L.marker([s.lat, s.lng], { icon: chipIcon(`HALT ${s.min}'`, 'chip-stay', `border-color:${mapColor(id)}`), zIndexOffset: 500 });
+      const np = nearestPoiAny(s);
+      m.bindPopup(`<div class="label">${esc(playerName(state.players, id))} · Halt</div><div>${hm(s.from)}–${hm(s.to)}${s.ongoing ? ' (läuft)' : ''} · ${s.min} min · ${s.n} Signale</div>${np && np.d < 300 ? `<div class="muted">${formatDistance(np.d)} von ${esc(np.p.name)}</div>` : ''}`);
+      stayLayer.addLayer(m);
+    }
+  }
+}
+
+function nearestPoiAny(pt) {
+  let best = null;
+  for (const p of allPois()) { const d = distanceM(pt, p); if (!best || d < best.d) best = { p, d }; }
+  return best;
+}
+
+/* Zeitregler: state.replayT = null heisst live. Sonst werden Route und Position bis zu diesem
+   Zeitpunkt gezeigt. */
+const visiblePts = (id) => { const a = state.locs[id] || []; return state.replayT ? a.filter((p) => new Date(p.created_at).getTime() <= state.replayT) : a; };
+const shownLatest = (id) => { const a = visiblePts(id); return a.length ? a[a.length - 1] : null; };
+
+function replayRange() {
+  let min = Infinity;
+  for (const id of BANDIT_IDS()) for (const p of state.locs[id] || []) min = Math.min(min, new Date(p.created_at).getTime());
+  return min === Infinity ? null : [min, Date.now()];
+}
+
+function toggleReplay() {
+  const bar = $('#replaybar');
+  if (!bar.hidden) { stopReplay(); bar.hidden = true; $('#b-time').classList.remove('on'); state.replayT = null; drawPlayers(); drawStays(); return; }
+  const r = replayRange(); if (!r) return toast('Verlauf', 'Noch keine Signale');
+  bar.hidden = false; $('#b-time').classList.add('on');
+  if (!state.desk) { prefs.sheet = false; $('#sheet').classList.add('collapsed'); }
+  state.replayT = r[1];
+  bar.innerHTML = `<button class="btn small" id="rp-play">Abspielen</button>
+    <input type="range" id="rp-range" min="${r[0]}" max="${r[1]}" step="60000" value="${r[1]}">
+    <span class="label num" id="rp-time"></span><button class="btn small solid" id="rp-live">Live</button>`;
+  const range = $('#rp-range');
+  const apply = () => { state.replayT = Number(range.value); $('#rp-time').textContent = new Date(state.replayT).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase(); drawPlayers(); drawStays(); };
+  range.oninput = () => { stopReplay(); apply(); };
+  $('#rp-live').onclick = toggleReplay;
+  $('#rp-play').onclick = () => {
+    if (state.replayTimer) return stopReplay();
+    if (Number(range.value) >= Number(range.max)) range.value = range.min;
+    $('#rp-play').textContent = 'Pause';
+    /* 10 Minuten Spielzeit pro Sekunde */
+    state.replayTimer = setInterval(() => {
+      range.value = Math.min(Number(range.max), Number(range.value) + 10 * 60000 / 4);
+      apply();
+      if (Number(range.value) >= Number(range.max)) stopReplay();
+    }, 250);
+  };
+  apply();
+}
+function stopReplay() { clearInterval(state.replayTimer); state.replayTimer = null; const b = $('#rp-play'); if (b) b.textContent = 'Abspielen'; }
+
+/* ===================== Linien erraten ===================== */
+
+async function loadLines(force) {
+  if (!state.osm) return;
+  try { state.routes = await loadRoutes(state.osm.oepnv, force); } catch (e) { console.error(e); state.routes = state.routes || null; }
+  drawLineGuess(); renderCards(); renderLage();
+}
+
+let lineLayer = null;
+function lineGuesses(id) { return guessLines(state.locs[id] || [], state.routes); }
+
+function drawLineGuess() {
+  if (!map) return;
+  if (!lineLayer) lineLayer = L.layerGroup().addTo(map);
+  lineLayer.clearLayers();
+  if (state.replayT) return;
+  for (const id of BANDIT_IDS()) {
+    const g = lineGuesses(id)[0]; if (!g) continue;
+    const l = latest(id); if (!l || ageMin(l) > 45) continue;
+    L.polyline([[l.lat, l.lng], ...g.next.map((s) => [s.lat, s.lng])], { color: mapColor(id), weight: 2, dashArray: '2 8', opacity: 0.9, interactive: false }).addTo(lineLayer);
+    g.next.forEach((s, k) => L.marker([s.lat, s.lng], { icon: chipIcon(`${g.ref} ${hm(s.eta)}`, 'chip-next'), zIndexOffset: 650 - k })
+      .bindTooltip(`${s.name} · ${g.ref} Richtung ${g.to}`, { className: 'ls-tip' }).addTo(lineLayer));
+  }
+}
+
+function lineHtml(id) {
+  const gs = lineGuesses(id); if (!gs.length) return '';
+  return gs.map((g, i) => `<div class="label" style="margin-top:4px;color:${i ? 'var(--ash)' : 'var(--bone)'}">${i ? 'Oder' : 'Vermutlich'} ${esc(g.ref)} Richtung ${esc(g.to)} (${Math.round(g.kmh)} km/h): ${esc(g.next.slice(0, 4).map((s) => s.name + ' ' + hm(s.eta)).join(' · '))}</div>`).join('');
+}
+
+/* ===================== Claude-Antwort importieren ===================== */
+
+/* Erwartet einen JSON-Block wie im Export beschrieben. Ziele werden als Notizen mit Ort
+   angelegt (Quelle claude), alte Claude-Ziele auf Wunsch ersetzt. */
+async function importClaude(text, replace) {
+  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*\})/);
+  if (!m) throw new Error('Kein JSON-Block gefunden');
+  const j = JSON.parse(m[1]);
+  const ziele = Array.isArray(j.ziele) ? j.ziele : [];
+  if (replace) for (const n of notes().filter((n) => n.data.source === 'claude')) await store.deleteItem(n.id).catch(() => {});
+  let k = 0;
+  for (const z of ziele) {
+    const lat = Number(z.lat), lng = Number(z.lng);
+    if (!isFinite(lat) || !isFinite(lng) || !lat) continue;
+    const pct = z.wahrscheinlichkeit != null ? Math.round(Number(z.wahrscheinlichkeit) * (Number(z.wahrscheinlichkeit) <= 1 ? 100 : 1)) : null;
+    await store.addItem({ kind: 'note', lat, lng, author: 'CLAUDE', data: { source: 'claude', pct, text: `${z.name || 'Ziel'}${pct != null ? ' · ' + pct + '%' : ''}${z.grund ? '\n' + z.grund : ''}` } });
+    k++;
+  }
+  if (j.notiz) { await store.addItem({ kind: 'note', author: 'CLAUDE', data: { source: 'claude', text: String(j.notiz) } }); }
+  return k;
 }
 
 /* ===================== Aufgaben (nur lesen) ===================== */
@@ -1361,6 +1644,22 @@ function buildExport() {
     out.push(`- ${playerName(state.players, id)}: ` + list.map((n) => `${n.poi.name} ${formatDistance(n.d).toLowerCase()}`).join('; '));
   }
   out.push('');
+  out.push('AKKU, HALTE, LINIEN');
+  for (const id of BANDIT_IDS()) {
+    const n = playerName(state.players, id);
+    const bt = batteryText(id); if (bt) out.push(`- ${n}: ${bt.toLowerCase()}`);
+    const st = stays(state.locs[id] || []).slice(-4);
+    if (st.length) out.push(`- ${n} Halte: ` + st.map((x) => { const np = nearestPoiAny(x); return `${hm(x.from)}-${hm(x.to)} ${x.min} min bei ${x.lat.toFixed(4)}, ${x.lng.toFixed(4)}${np && np.d < 300 ? ' (' + np.p.name + ')' : ''}`; }).join('; '));
+    const g = lineGuesses(id)[0];
+    if (g) out.push(`- ${n}: vermutlich ${g.ref} Richtung ${g.to}, nächste Halte ${g.next.map((x) => x.name + ' ' + hm(x.eta)).join(', ')}`);
+  }
+  out.push('');
+  out.push('ÖFFNUNGSZEITEN OFFENER AUFGABEN-ORTE (jetzt / Fenster bis Spielende ' + hm(new Date(GAME_END)) + ' ' + DAYS[new Date(GAME_END).getDay()] + ')');
+  for (const p of openPois().filter((p) => p.hours)) {
+    const w = windowsUntil(p.hours, now, new Date(GAME_END)) || [];
+    out.push(`- ${p.name}: ${openText(openState(p.hours)).toLowerCase()}; ${w.length ? w.map((x) => x.text).join(', ') : 'bis Spielende zu'}`);
+  }
+  out.push('');
   out.push('PROGNOSE DER APP (Nähe, Richtung, Termine)');
   for (const id of BANDIT_IDS()) {
     const pr = prognosis(id);
@@ -1376,7 +1675,10 @@ function buildExport() {
     hs.forEach((h, i) => out.push(`${i + 1}. ${h.st[2]} (${h.st[3]}): ${h.near.map((n) => n.code + ' ' + formatDistance(n.d).toLowerCase()).join(', ')}`));
   }
   out.push('');
-  out.push('FRAGE: Welchen Ort steuern die Gejagten als nächstes an, und wo können wir sie am besten abfangen? Berücksichtige offene Aufgaben, Bewegungsrichtung und die nächsten Pflichttermine.');
+  out.push('FRAGE: Welchen Ort steuern die Gejagten als nächstes an, und wo können wir sie am besten abfangen? Berücksichtige offene Aufgaben, Öffnungszeiten, Bewegungsrichtung und die nächsten Pflichttermine.');
+  out.push('');
+  out.push('ANTWORTFORMAT: Antworte zuerst kurz in Worten. Gib am Ende genau einen JSON-Block in ```json ... ``` aus, damit wir ihn in unsere App importieren können:');
+  out.push('{"ziele":[{"name":"Ort","lat":48.77,"lng":9.18,"wahrscheinlichkeit":0.4,"grund":"kurz"}],"notiz":"Empfehlung für die Jäger in 1-2 Sätzen"}');
   return out.join('\n');
 }
 
@@ -1390,7 +1692,21 @@ function renderExport() {
       ${navigator.share ? '<button class="btn" id="share">Teilen</button>' : ''}
       <button class="btn quiet" id="refresh">Neu</button>
     </div>
-    <textarea class="export-text" id="export-text" readonly>${esc(text)}</textarea>`;
+    <textarea class="export-text" id="export-text" readonly>${esc(text)}</textarea>
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Antwort importieren</h2><span class="label">Von Claude</span></div>
+      <div class="label" style="padding:8px 0">Die komplette Antwort von Claude hier einfügen. Die Ziele erscheinen als KI-Marken auf der Karte, die Empfehlung unter Notizen.</div>
+      <textarea id="import-text" rows="6" placeholder="Antwort mit dem JSON-Block einfügen"></textarea>
+      <label class="layer-row" style="padding:10px 0;border:0"><input type="checkbox" class="check" id="import-replace" checked><span class="name">Alte KI-Ziele ersetzen</span></label>
+      <div class="btn-row"><button class="btn solid" id="import-go">Importieren</button></div>
+    </div>`;
+  $('#import-go').onclick = async () => {
+    try {
+      const k = await importClaude($('#import-text').value, $('#import-replace').checked);
+      toast('Import', k + ' Ziele übernommen', 'detective');
+      $('#import-text').value = '';
+    } catch (e) { toast('Import', String(e.message || e)); }
+  };
   $('#copy').onclick = async () => {
     const ta = $('#export-text');
     try { await navigator.clipboard.writeText(ta.value); }
@@ -1422,7 +1738,7 @@ async function loadAll(initial) {
     state.proofs = proofs;
     evaluateProximity(true);
     refreshPoiIcons(); buildLive();
-    drawPlayers(); drawCar(); drawHunters(); drawItems(); drawProofs(); renderCards(); renderTasks(); renderLage(); renderNotes();
+    drawPlayers(); drawCar(); drawHunters(); drawItems(); drawProofs(); drawStays(); drawLineGuess(); renderCards(); renderTasks(); renderLage(); renderNotes();
     if (initial) fitAll();
   } catch (e) {
     console.error(e);
@@ -1439,7 +1755,7 @@ function onEvent({ table, type, row }) {
     addLoc(row);
     if (row.player_id === 'car') { drawCar(); renderCards(); renderLage(); return; }
     if (row.player_id.startsWith('h:')) { drawHunters(); renderLage(); return; }
-    drawPlayers(); evaluateProximity(false); renderCards(); renderLage();
+    drawPlayers(); evaluateProximity(false); drawStays(); drawLineGuess(); renderCards(); renderLage(); if (compass) updateCompass();
   } else if (table === 'completions') {
     const before = state.completions[row.task_id];
     state.completions[row.task_id] = row;
@@ -1488,7 +1804,8 @@ function start() {
   });
   pushActive().then((on) => { state.push = on; renderPush(); });
   /* "vor X Min" und Ausgrauen alter Signale laufend aktualisieren */
-  setInterval(() => { drawPlayers(); drawHunters(); renderCards(); renderLage(); }, 30000);
+  setInterval(() => { drawPlayers(); drawHunters(); renderCards(); renderLage(); checkSilence(); }, 30000);
+  setInterval(refreshPoiIcons, 5 * 60000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(false); });
 }
 

@@ -21,6 +21,10 @@ Ohne Supabase-Daten in `js/config.js` läuft die App im **Demo-Modus** (Daten nu
 
 Im SQL Editor einmal `supabase/migration-02.sql` ausführen. Bei einer neuen Datenbank ist sie in `schema.sql` schon enthalten.
 
+## 1c. Erweiterung 03 (Akkustand, Funkstille-Alarm)
+
+In `supabase/migration-03.sql` `<DEIN-PROJEKT>` durch die Vercel-Adresse ersetzen (z.B. `last-signal.vercel.app`) und im SQL Editor ausführen. Damit prüft Supabase alle 5 Minuten, ob ein Gejagter länger als 25 Minuten kein Signal gesendet hat, und schickt dann einen Push. Spielzeitraum und Öffnungszeiten stehen in `js/data.js` (`GAME_START`, `GAME_END`, `hours`).
+
 ## 2. Vercel (ca. 3 Min.)
 
 1. Repo zu GitHub pushen, auf vercel.com **Add New → Project**, Repo wählen.

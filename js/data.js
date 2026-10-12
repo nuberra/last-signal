@@ -49,21 +49,35 @@ export const APPOINTMENTS = [
   },
 ];
 
+/* Oeffnungszeiten: pro Wochentag (0 = Sonntag) Liste von [auf, zu] als 'HH:MM'.
+   zu > 24:00 bedeutet ueber Mitternacht. null = ganztags zu. Fehlt hours: immer zugaenglich.
+   Recherchiert Oktober 2026, ohne Gewaehr. 01.11.2026 ist Sonntag (Allerheiligen). */
+const WEEK = (mo, sa, so) => [so, mo, mo, mo, mo, mo, sa];
+const H = {
+  museum: WEEK([['09:00', '18:00']], [['09:00', '18:00']], [['09:00', '18:00']]),
+  schwein: WEEK([['10:00', '18:30']], [['10:00', '18:30']], [['10:00', '18:30']]),
+  casino: WEEK([['15:00', '27:00']], [['15:00', '27:00']], [['15:00', '27:00']]),
+  mall: WEEK([['10:00', '20:00']], [['09:30', '20:00']], null),
+  lego: WEEK([['10:00', '20:00']], [['10:00', '20:00']], null),
+  turm: WEEK([['10:00', '21:30']], [['10:00', '21:30']], [['10:00', '21:30']]),
+};
+H.museum[1] = null; // Montag Ruhetag
+
 /* Feste Orte. tag = Kurzwort auf der Karte, tasks = Aufgaben, die dort erledigt werden.
    Sind alle Aufgaben eines Orts erledigt, wird er auf der Karte zurueckgenommen. */
 export const POI_CATEGORIES = [
   { id: 'termine', label: 'Pflichttermine', tag: 'TERMIN', items: APPOINTMENTS.map((a) => ({ name: a.place, lat: a.lat, lng: a.lng, tasks: [a.id], code: 'T' + a.n })) },
   { id: 'museen', label: 'Museen', tag: 'MUSEUM', items: [
-    { name: 'Mercedes-Benz Museum', lat: 48.78815, lng: 9.23398, tasks: ['t02'] },
-    { name: 'Porsche Museum', lat: 48.83421, lng: 9.15255, tasks: ['t03'] },
-    { name: 'SchweineMuseum', lat: 48.78581, lng: 9.21999, tasks: ['t04'] },
+    { name: 'Mercedes-Benz Museum', lat: 48.78815, lng: 9.23398, tasks: ['t02'], hours: H.museum },
+    { name: 'Porsche Museum', lat: 48.83421, lng: 9.15255, tasks: ['t03'], hours: H.museum },
+    { name: 'SchweineMuseum', lat: 48.78581, lng: 9.21999, tasks: ['t04'], hours: H.schwein },
   ] },
   { id: 'casino', label: 'Casino', tag: 'CASINO', items: [
-    { name: 'Spielbank Stuttgart', lat: 48.72286, lng: 9.16055, tasks: ['t15'] },
+    { name: 'Spielbank Stuttgart', lat: 48.72286, lng: 9.16055, tasks: ['t15'], hours: H.casino },
   ] },
   { id: 'malls', label: 'Einkaufszentren', tag: 'MALL', items: [
-    { name: 'Milaneo', lat: 48.79122, lng: 9.18320, tasks: ['t24'] },
-    { name: 'Das Gerber', lat: 48.77236, lng: 9.17231, tasks: ['t24'] },
+    { name: 'Milaneo', lat: 48.79122, lng: 9.18320, tasks: ['t24'], hours: H.mall },
+    { name: 'Das Gerber', lat: 48.77236, lng: 9.17231, tasks: ['t24'], hours: H.mall },
   ] },
   { id: 'mcd', label: "McDonald's", tag: 'MCD', items: [
     { name: "McDonald's Königstrasse 17", lat: 48.77723, lng: 9.17733, tasks: ['t16'] },
@@ -72,11 +86,11 @@ export const POI_CATEGORIES = [
     { name: "McDonald's Mailänder Platz 7", lat: 48.79086, lng: 9.18382, tasks: ['t16'] },
   ] },
   { id: 'lego', label: 'Lego Store', tag: 'LEGO', items: [
-    { name: 'Lego Store Königstrasse 43B', lat: 48.77438, lng: 9.17482, tasks: ['t23'] },
+    { name: 'Lego Store Königstrasse 43B', lat: 48.77438, lng: 9.17482, tasks: ['t23'], hours: H.lego },
   ] },
   { id: 'foto', label: 'Fotopunkte', tag: 'FOTO', items: [
     { name: 'Neues Schloss', lat: 48.77797, lng: 9.18187, tasks: ['t01'] },
-    { name: 'Fernsehturm', lat: 48.75586, lng: 9.19011, tasks: ['t07', 't08'] },
+    { name: 'Fernsehturm', lat: 48.75586, lng: 9.19011, tasks: ['t07', 't08'], hours: H.turm },
     { name: 'Hauptbahnhof Gleis 9', lat: 48.78417, lng: 9.17892, tasks: ['t14'] },
     { name: 'Max-Eyth-See', lat: 48.83510, lng: 9.21687, tasks: ['t06'] },
     { name: 'MHP Arena (Stadion)', lat: 48.79226, lng: 9.23208, tasks: ['t05'] },
@@ -95,3 +109,7 @@ export const LIVE_LAYERS = [
 ];
 
 export const ALERT_RADIUS_M = 500;
+
+/* Spielzeitraum: fuer Funkstille-Alarm und "letzte Chance" der Aufgaben. */
+export const GAME_START = '2026-10-29T08:00:00+01:00';
+export const GAME_END = '2026-11-01T18:00:00+01:00';

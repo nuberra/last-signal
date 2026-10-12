@@ -4,7 +4,7 @@
    geheim und nur in Vercel gesetzt: VAPID_PRIVATE_KEY, OWNTRACKS_PASSWORD. */
 import webpush from 'web-push';
 import { CONFIG } from '../js/config.js';
-import { POI_CATEGORIES, ALERT_RADIUS_M } from '../js/data.js';
+import { POI_CATEGORIES, ALERT_RADIUS_M, GAME_START, GAME_END } from '../js/data.js';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || CONFIG.SUPABASE_URL).replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || CONFIG.SUPABASE_ANON_KEY;
@@ -57,6 +57,43 @@ function distanceM(a, b) {
   const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export const inGame = (t = Date.now()) => t >= new Date(GAME_START).getTime() && t <= new Date(GAME_END).getTime();
+
+/* Standort speichern; fehlen die Akku-Spalten (Erweiterung 03 nicht ausgefuehrt), ohne sie. */
+export async function insertLocation(row) {
+  try {
+    await supa('locations', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(row) });
+  } catch (e) {
+    if (!/battery|charging|column/i.test(String(e.message))) throw e;
+    const { battery, charging, ...rest } = row;
+    await supa('locations', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(rest) });
+  }
+}
+
+function nearestPoi(p) {
+  let best = null;
+  for (const c of POI_CATEGORIES) for (const poi of c.items) {
+    const d = distanceM(p, poi);
+    if (!best || d < best.d) best = { name: poi.name, d };
+  }
+  return best;
+}
+
+/* Push "NEUES SIGNAL": bei Signalen aus der Web-App immer, bei OwnTracks (laufend)
+   nur, wenn das vorige Signal mindestens 15 Minuten zurueckliegt. */
+export async function notifySignal(playerId, source) {
+  const rows = await supa('locations?select=lat,lng,created_at,battery&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2').catch(() =>
+    supa('locations?select=lat,lng,created_at&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2'));
+  if (!rows || !rows.length) return;
+  const [now, prev] = rows;
+  const gap = prev ? (new Date(now.created_at) - new Date(prev.created_at)) / 60000 : Infinity;
+  if (source === 'owntracks' && gap < 15) return;
+  const np = nearestPoi(now);
+  const t = new Date(now.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  const body = `${t} · ${np ? Math.round(np.d) + ' M VON ' + np.name.toUpperCase() : ''}${now.battery != null ? ' · AKKU ' + now.battery + '%' : ''}`;
+  await sendPush('NEUES SIGNAL ' + banditName(playerId), body, { tag: 'signal-' + playerId });
 }
 
 export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || {}).name || id).toUpperCase();

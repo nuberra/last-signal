@@ -77,3 +77,57 @@ export async function loadOsm(force = false) {
   }
   throw lastErr;
 }
+
+/* ---------- S-Bahn- und Stadtbahn-Linien mit Haltefolge ---------- */
+
+const ROUTES_KEY = 'ls-osm-routes-v1';
+
+function routesQuery() {
+  const b = BBOX.join(',');
+  return `[out:json][timeout:120];
+rel["route"~"^(train|light_rail|subway)$"]["ref"~"^(S|U) ?[0-9]+"](${b})->.r;
+.r out body;
+node(r.r)->.n;
+.n out skel;`;
+}
+
+/* Liefert [{ ref, to, stops: [[lat, lng, name], ...] }] in Fahrtrichtung. Haltenamen werden
+   ueber die naechste bekannte Station (stations aus loadOsm) zugeordnet. */
+function parseRoutes(json, stations) {
+  const nodes = new Map();
+  for (const el of json.elements || []) if (el.type === 'node') nodes.set(el.id, [el.lat, el.lon]);
+  const out = [];
+  for (const el of json.elements || []) {
+    if (el.type !== 'relation') continue;
+    const t = el.tags || {};
+    const stops = [];
+    for (const m of el.members || []) {
+      if (m.type !== 'node' || !/^stop/.test(m.role || '')) continue;
+      const ll = nodes.get(m.ref); if (!ll) continue;
+      let name = '';
+      let bd = 300;
+      for (const s of stations || []) { const d = near(s, ll); if (d < bd) { bd = d; name = s[2]; } }
+      if (stops.length && stops[stops.length - 1][2] === name && name) continue;
+      stops.push([ll[0], ll[1], name || 'Halt']);
+    }
+    if (stops.length >= 3) out.push({ ref: String(t.ref).replace(/\s+/g, ''), to: t.to || (stops[stops.length - 1][2]), stops });
+  }
+  return out;
+}
+
+export async function loadRoutes(stations, force = false) {
+  if (!force) {
+    try { const c = JSON.parse(localStorage.getItem(ROUTES_KEY)); if (c && Date.now() - c.at < TTL) return c.data; } catch { /* leer */ }
+  }
+  let lastErr;
+  for (const url of ENDPOINTS) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(routesQuery()), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      if (!res.ok) throw new Error('Overpass ' + res.status);
+      const data = parseRoutes(await res.json(), stations);
+      try { localStorage.setItem(ROUTES_KEY, JSON.stringify({ at: Date.now(), data })); } catch { /* voll */ }
+      return data;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}

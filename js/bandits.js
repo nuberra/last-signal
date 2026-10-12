@@ -105,6 +105,15 @@ function freshFix(maxWait = 15000) {
   });
 }
 
+/* Akkustand: nur Chrome/Android kennt die Battery-API, iPhone liefert nichts. */
+async function batteryInfo() {
+  try {
+    if (!navigator.getBattery) return {};
+    const b = await navigator.getBattery();
+    return { battery: Math.round(b.level * 100), charging: b.charging };
+  } catch { return {}; }
+}
+
 const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch { return []; } };
 const writeQueue = (q) => localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-200)));
 
@@ -120,13 +129,13 @@ async function sendNow(source) {
   state.sending = true; renderSignal();
   try {
     const f = await freshFix();
-    const row = { player_id: me.id, lat: f.lat, lng: f.lng, accuracy: Math.round(f.accuracy), source, created_at: new Date().toISOString() };
+    const row = { player_id: me.id, lat: f.lat, lng: f.lng, accuracy: Math.round(f.accuracy), source, created_at: new Date().toISOString(), ...(await batteryInfo()) };
     state.lastSent = { at: row.created_at, lat: f.lat, lng: f.lng, accuracy: row.accuracy };
     localStorage.setItem(LAST_KEY, JSON.stringify(state.lastSent));
     try {
       await flushQueue();
       await store.addLocation(row);
-      checkProximity(me.id);
+      checkProximity(me.id, source);
       if (source !== 'auto') toast('Signal', 'Standort gesendet ' + timeHM(row.created_at), 'bandit');
     } catch {
       const q = readQueue(); q.push(row); writeQueue(q);
