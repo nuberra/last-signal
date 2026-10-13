@@ -96,42 +96,49 @@ function nearestPoi(p) {
   return best;
 }
 
-/* Push "NEUES SIGNAL": bei Signalen aus der Web-App immer, bei OwnTracks (laufend)
-   nur, wenn das vorige Signal mindestens 15 Minuten zurueckliegt. */
-export async function notifySignal(playerId, source) {
-  const rows = await supa('locations?select=lat,lng,created_at,battery&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2').catch(() =>
-    supa('locations?select=lat,lng,created_at&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2'));
-  if (!rows || !rows.length) return;
-  const [now, prev] = rows;
-  const gap = prev ? (new Date(now.created_at) - new Date(prev.created_at)) / 60000 : Infinity;
-  if (source === 'owntracks' && gap < 15) return;
-  const np = nearestPoi(now);
-  const t = new Date(now.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
-  const body = `${t} · ${np ? Math.round(np.d) + ' M VON ' + np.name.toUpperCase() : ''}${now.battery != null ? ' · AKKU ' + now.battery + '%' : ''}`;
-  await sendPush('NEUES SIGNAL ' + banditName(playerId), body, { tag: 'signal-' + playerId });
-}
-
 export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || {}).name || id).toUpperCase();
 
-/* Vergleicht die zwei neuesten Punkte eines Gejagten: kommt er neu in den
-   500-m-Umkreis eines Orts (alle Ebenen), geht ein Push an die Jaeger. */
-export async function checkProximity(playerId) {
-  const rows = await supa('locations?select=lat,lng,created_at&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2');
-  if (!rows || !rows.length) return [];
+/* Ein Push pro Signal, nie zwei:
+   - ALARM, wenn der Gejagte neu in den 500-m-Umkreis eines Orts mit OFFENER Aufgabe kommt
+     (erledigte Orte zaehlen nicht). Bei OwnTracks hoechstens ein Alarm alle 10 Minuten.
+   - sonst NEUES SIGNAL: aus der Web-App immer, aus OwnTracks nur nach 15 Minuten Pause. */
+export async function onSignal(playerId, source = 'web') {
+  const rows = await supa('locations?select=lat,lng,created_at,battery&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2').catch(() =>
+    supa('locations?select=lat,lng,created_at&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2'));
+  if (!rows || !rows.length) return { pushed: null };
   const [now, prev] = rows;
+  const done = new Set((await supa('completions?select=task_id&done=eq.true').catch(() => [])).map((r) => r.task_id));
   const hits = [];
   for (const c of POI_CATEGORIES) {
     for (const poi of c.items) {
+      if (poi.tasks && poi.tasks.length && poi.tasks.every((t) => done.has(t))) continue;
       const d = distanceM(now, poi);
       if (d > ALERT_RADIUS_M) continue;
       if (prev && distanceM(prev, poi) <= ALERT_RADIUS_M + 50) continue;
       hits.push({ name: poi.name, d });
     }
   }
-  if (!hits.length) return [];
   hits.sort((a, b) => a.d - b.d);
   const who = banditName(playerId);
-  const body = hits.map((h) => `${who} ist ${Math.round(h.d)} M von ${h.name} entfernt`).join('\n');
-  await sendPush('ALARM ' + ALERT_RADIUS_M + ' M', body, { tag: 'alarm-' + playerId + '-' + hits[0].name });
-  return hits;
+  const t = new Date(now.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  const akku = now.battery != null ? ' · AKKU ' + now.battery + '%' : '';
+
+  if (hits.length) {
+    let throttled = false;
+    if (source === 'owntracks') {
+      const last = await supa('hunter_items?select=created_at&kind=eq.alarm&data->>player=eq.' + playerId + '&order=created_at.desc&limit=1').catch(() => []);
+      throttled = !!(last.length && Date.now() - new Date(last[0].created_at).getTime() < 10 * 60000);
+    }
+    if (!throttled) {
+      await supa('hunter_items', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ kind: 'alarm', data: { player: playerId } }) }).catch(() => {});
+      const list = hits.slice(0, 2).map((h) => Math.round(h.d) + ' M VON ' + h.name.toUpperCase()).join(' · ') + (hits.length > 2 ? ` (+${hits.length - 2})` : '');
+      await sendPush('ALARM ' + who, `${t} · ${list}${akku}`, { tag: 'signal-' + playerId });
+      return { pushed: 'alarm', hits };
+    }
+  }
+  const gap = prev ? (new Date(now.created_at) - new Date(prev.created_at)) / 60000 : Infinity;
+  if (source === 'owntracks' && gap < 15) return { pushed: null, hits };
+  const np = nearestPoi(now);
+  await sendPush('NEUES SIGNAL ' + who, `${t}${np ? ' · ' + Math.round(np.d) + ' M VON ' + np.name.toUpperCase() : ''}${akku}`, { tag: 'signal-' + playerId });
+  return { pushed: 'signal', hits };
 }

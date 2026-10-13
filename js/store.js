@@ -58,7 +58,7 @@ function supabaseStore() {
         await del('hunter_items', (x) => x.gte('id', 0));
       } else {
         await del('locations', (x) => x.eq('source', 'test'));
-        await del('hunter_items', (x) => x.eq('kind', 'silence'));
+        await del('hunter_items', (x) => x.in('kind', ['silence', 'alarm']));
       }
     },
     addItem: (it) => q((c) => c.from('hunter_items').insert(it).select()),
