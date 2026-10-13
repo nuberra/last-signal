@@ -151,7 +151,7 @@ async function runHealth() {
       add('Supabase', h.supabase.ok, h.supabase.info);
       add('Erweiterung 02', h.erweiterung02.ok, h.erweiterung02.ok ? 'Notizen, Zeichnungen, Foto-Orte' : 'migration-02.sql ausführen');
       add('Erweiterung 03', h.erweiterung03.ok, h.erweiterung03.ok ? 'Akkustand' : 'migration-03.sql ausführen');
-      add('Push-Schlüssel', h.push, h.push ? '' : 'VAPID_PRIVATE_KEY in Vercel setzen');
+      add('Push-Schlüssel', h.push && h.vapidPair, !h.push ? 'VAPID_PRIVATE_KEY in Vercel setzen' : h.vapidPair ? 'Schlüsselpaar passt' : 'Privater Schlüssel passt nicht zum öffentlichen. Wert in Vercel genau prüfen, dann Redeploy');
       add('OwnTracks', h.owntracks, h.owntracks ? '' : 'OWNTRACKS_PASSWORD in Vercel setzen');
       add('Push-Geräte', h.pushAbos.ok && !/^0 /.test(h.pushAbos.info), h.pushAbos.info);
       add('Funkstille-Takt', h.funkstilleCron.ok ? null : false, h.funkstilleCron.info);
@@ -268,7 +268,8 @@ function bind() {
   $('#p-push').onclick = async () => {
     if (DEMO) return say('p-push-out', 'Demo-Modus: kein Server', false);
     const r = await fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'LAST SIGNAL TEST', body: 'Push funktioniert ' + timeHM(new Date().toISOString()) }) }).then((x) => x.json()).catch(() => null);
-    say('p-push-out', r ? (r.error ? r.error : `Gesendet an ${r.sent} von ${r.total} Geräten`) : 'Server nicht erreichbar', !!(r && r.sent));
+    const errs = r && r.errors && r.errors.length ? ' · Fehler: ' + r.errors.map((e) => `${e.service} ${e.status || ''} ${e.body}`).join(' | ') : '';
+    say('p-push-out', r ? (r.error ? r.error : `Gesendet an ${r.sent} von ${r.total} Geräten${errs}`) : 'Server nicht erreichbar', !!(r && r.sent));
   };
   $('#p-ot').onclick = async () => {
     const pt = state.point || { lat: 48.7766, lng: 9.1755 };

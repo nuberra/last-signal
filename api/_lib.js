@@ -3,13 +3,26 @@
    Supabase-URL, anon-Schluessel und VAPID-Public-Key kommen aus js/config.js;
    geheim und nur in Vercel gesetzt: VAPID_PRIVATE_KEY, OWNTRACKS_PASSWORD. */
 import webpush from 'web-push';
+import crypto from 'node:crypto';
 import { CONFIG } from '../js/config.js';
 import { POI_CATEGORIES, ALERT_RADIUS_M, GAME_START, GAME_END } from '../js/data.js';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || CONFIG.SUPABASE_URL).replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || CONFIG.SUPABASE_ANON_KEY;
-const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || CONFIG.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+/* trim: beim Kopieren in Vercel rutschen leicht Leerzeichen oder Zeilenumbrueche mit */
+const clean = (v) => (v || '').trim().replace(/^["']|["']$/g, '');
+const VAPID_PUBLIC = clean(process.env.VAPID_PUBLIC_KEY || CONFIG.VAPID_PUBLIC_KEY);
+const VAPID_PRIVATE = clean(process.env.VAPID_PRIVATE_KEY);
+
+/* Passt der private Schluessel zum oeffentlichen in config.js? */
+export function vapidPairOk() {
+  try {
+    const ecdh = crypto.createECDH('prime256v1');
+    ecdh.setPrivateKey(Buffer.from(VAPID_PRIVATE.replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
+    const pub = ecdh.getPublicKey().toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return pub === VAPID_PUBLIC;
+  } catch { return false; }
+}
 
 export async function supa(path, init = {}) {
   const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
@@ -39,17 +52,19 @@ export async function sendPush(title, body, { role = 'detective', tag } = {}) {
   const subs = await supa('push_subscriptions?select=endpoint,subscription&role=eq.' + role);
   const payload = JSON.stringify({ title, body, url: role === 'detective' ? '/jaeger.html' : '/', tag: tag || title });
   let sent = 0;
+  const errors = [];
   await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification(s.subscription, payload, { TTL: 3600, urgency: 'high' });
       sent++;
     } catch (e) {
+      errors.push({ status: e.statusCode || null, service: String(s.endpoint).split('/')[2], body: String(e.body || e.message || '').slice(0, 200) });
       if (e.statusCode === 404 || e.statusCode === 410) {
         await supa('push_subscriptions?endpoint=eq.' + encodeURIComponent(s.endpoint), { method: 'DELETE' }).catch(() => {});
       }
     }
   }));
-  return { sent, total: subs.length };
+  return { sent, total: subs.length, errors };
 }
 
 function distanceM(a, b) {

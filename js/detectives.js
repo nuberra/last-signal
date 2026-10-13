@@ -1700,7 +1700,22 @@ function renderExport() {
       <label class="layer-row" style="padding:10px 0;border:0"><input type="checkbox" class="check" id="import-replace" checked><span class="name">Alte KI-Ziele ersetzen</span></label>
       <div class="btn-row"><button class="btn solid" id="import-go">Importieren</button></div>
     </div>
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Push</h2><span class="label">Dieses Gerät</span></div>
+      <div class="label" style="padding:8px 0">Kommen keine Mitteilungen an: hier neu verbinden. Danach in der Testzentrale den Test-Push wiederholen.</div>
+      <button class="btn" id="push-reset">Push neu verbinden</button>
+    </div>
     <div class="section"><a class="label" href="/test.html" target="_blank">Testzentrale öffnen</a></div>`;
+  $('#push-reset').onclick = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const old = await reg.pushManager.getSubscription();
+      if (old) await old.unsubscribe();
+      await enablePush('detective');
+      state.push = true; renderPush();
+      toast('Push', 'Neu verbunden', 'detective');
+    } catch (e) { toast('Push', String(e.message || e)); }
+  };
   $('#import-go').onclick = async () => {
     try {
       const k = await importClaude($('#import-text').value, $('#import-replace').checked);
