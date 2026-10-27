@@ -391,3 +391,11 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
 .ot-steps { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 16px; }
 .ot-steps li { border-left: 8px solid var(--orange); padding-left: 16px; line-height: 1.45; }
 .ot-steps .label { display: block; margin-bottom: 4px; }
+.dt-card { padding: 16px 0; border-bottom: 1px solid var(--ash-26); }
+.dt-verdict { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; text-align: right; }
+.dt-ok { background: var(--bone); color: var(--ink); }
+.dt-warn { border: 1px solid var(--bone); color: var(--bone); }
+.dt-bad { background: var(--orange); color: var(--ink); }
+.dt-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; margin-top: 6px; border-bottom: 1px solid var(--ash-26); }
+.dt-bars i { flex: 1; background: var(--bone); min-height: 1px; }
+.dt-bars i.zero { background: var(--orange); height: 3px !important; }

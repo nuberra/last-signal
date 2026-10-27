@@ -114,6 +114,12 @@ function render() {
         <button class="btn small" id="otl-go" style="margin-top:8px">Links erzeugen</button>
         <div id="otl-out" style="margin-top:8px"></div>`)}
 
+      ${section('Dauertest', 'Kommen die Signale regelmässig?', `
+        <div class="label" style="padding:8px 0">Wertet alle Signale der Gejagten aus: wie viele pro Stunde, aus welcher Quelle, wo es Lücken gab und wie der Akku lief. Für den Probetag: morgens starten, abends hier auswerten.</div>
+        <div class="seg" style="margin-top:8px">${[[6, '6 H'], [24, '24 H'], [48, '48 H'], [96, '4 TAGE']].map(([h, t], i) => `<button class="btn ${i === 1 ? 'on' : ''}" data-dt="${h}">${t}</button>`).join('')}</div>
+        <button class="btn small solid" id="dt-run" style="margin-top:8px">Auswerten</button>
+        <div id="dt-out" style="margin-top:8px"></div>`)}
+
       ${section('Öffnungszeiten', 'Zu einem Zeitpunkt', `
         <input type="datetime-local" id="oh-at" class="test-input" value="2026-10-31T19:30">
         <button class="btn small" id="oh-run" style="margin-top:8px">Prüfen</button>
@@ -314,6 +320,9 @@ function bind() {
     $('#otl-out').querySelectorAll('[data-copy]').forEach((x) => x.onclick = async () => { try { await navigator.clipboard.writeText(x.dataset.copy); toast('Link', 'Kopiert'); } catch { prompt('Link kopieren', x.dataset.copy); } });
     $('#otl-out').querySelectorAll('[data-share]').forEach((x) => x.onclick = () => navigator.share({ title: 'OwnTracks für ' + x.dataset.name, text: 'Last Signal: OwnTracks einrichten', url: x.dataset.share }).catch(() => {}));
   };
+  let dtHours = 24;
+  root.querySelectorAll('[data-dt]').forEach((b) => b.onclick = () => { dtHours = Number(b.dataset.dt); root.querySelectorAll('[data-dt]').forEach((x) => x.classList.toggle('on', x === b)); });
+  $('#dt-run').onclick = () => runDauertest(dtHours);
   $('#oh-run').onclick = () => {
     const t = new Date($('#oh-at').value);
     const rows = POI_CATEGORIES.flatMap((c) => c.items).filter((p) => p.hours).map((p) => { const st = openState(p.hours, t); return `<div class="lage-row" style="grid-template-columns:1fr auto"><span class="value">${esc(p.name.toUpperCase())}</span><span class="label" style="color:${st.open ? 'var(--bone)' : 'var(--ash)'}">${esc(openText(st))}</span></div>`; });
@@ -327,6 +336,50 @@ function bind() {
     if (!confirm('Sicher? Das lässt sich nicht rückgängig machen.')) return;
     try { await store.resetData(true); say('r-out', 'Alles zurückgesetzt. Alle Seiten neu laden.'); } catch (e) { say('r-out', 'Fehler: ' + (e.message || e), false); }
   };
+}
+
+/* ===================== Dauertest ===================== */
+
+const GAP_MIN = 25;
+async function runDauertest(hours) {
+  const out = $('#dt-out');
+  out.innerHTML = '<div class="label">Lädt …</div>';
+  const since = Date.now() - hours * 3600e3;
+  let rows;
+  try { rows = await store.getLocations(new Date(since).toISOString()); } catch (e) { out.innerHTML = `<div class="test-out label bad">Fehler: ${esc(e.message || e)}</div>`; return; }
+  const fmt = (t) => new Date(t).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase();
+  out.innerHTML = CONFIG.BANDITS.map((b) => {
+    const pts = rows.filter((r) => r.player_id === b.id && r.source !== 'test').sort((a, c) => a.created_at.localeCompare(c.created_at));
+    if (!pts.length) return `<div class="dt-card"><div class="display d-s">${esc(b.name)}</div><div class="test-out label bad">Keine Signale in den letzten ${hours} H</div></div>`;
+    const bySrc = {};
+    pts.forEach((p) => { const k = p.source === 'owntracks' ? 'OwnTracks' : 'Web-App'; bySrc[k] = (bySrc[k] || 0) + 1; });
+    const ot = pts.filter((p) => p.source === 'owntracks');
+    /* Luecken: zwischen zwei Signalen und vom letzten Signal bis jetzt */
+    const times = pts.map((p) => new Date(p.created_at).getTime());
+    const gaps = [];
+    for (let i = 1; i < times.length; i++) { const g = (times[i] - times[i - 1]) / 60000; if (g >= GAP_MIN) gaps.push({ from: times[i - 1], to: times[i], min: Math.round(g) }); }
+    const sinceLast = Math.round((Date.now() - times[times.length - 1]) / 60000);
+    if (sinceLast >= GAP_MIN) gaps.push({ from: times[times.length - 1], to: null, min: sinceLast });
+    const maxGap = gaps.reduce((m, g) => Math.max(m, g.min), 0);
+    /* Signale pro Stunde als Balken */
+    const buckets = Array.from({ length: hours }, () => 0);
+    times.forEach((t) => { const i = Math.floor((t - since) / 3600e3); if (i >= 0 && i < hours) buckets[i]++; });
+    const peak = Math.max(1, ...buckets);
+    const bat = pts.filter((p) => p.battery != null);
+    const verdict = !gaps.length ? ['ok', 'Durchgehend Signale, keine Lücke über ' + GAP_MIN + ' Min.'] : maxGap < 60 ? ['warn', gaps.length + ' kurze Lücke(n), längste ' + maxGap + ' Min.'] : ['bad', gaps.length + ' Lücke(n), längste ' + maxGap + ' Min.'];
+    return `<div class="dt-card">
+      <div class="row" style="display:flex;justify-content:space-between;align-items:baseline"><span class="display d-s">${esc(b.name)}</span><span class="dt-verdict dt-${verdict[0]}">${esc(verdict[1])}</span></div>
+      <div class="kv" style="margin-top:8px">
+        <span class="label">Signale</span><span class="value">${pts.length} · ${Object.entries(bySrc).map(([k, v]) => k + ' ' + v).join(' · ')}</span>
+        <span class="label">Erstes / letztes</span><span class="value">${fmt(times[0])} / ${fmt(times[times.length - 1])}</span>
+        <span class="label">OwnTracks</span><span class="value">${ot.length ? 'letztes ' + fmt(ot[ot.length - 1].created_at) : 'KEINE — OwnTracks prüfen'}</span>
+        <span class="label">Akku</span><span class="value">${bat.length ? bat[0].battery + '% → ' + bat[bat.length - 1].battery + '% (' + fmt(bat[bat.length - 1].created_at) + ')' : 'keine Angabe'}</span>
+      </div>
+      <div class="label" style="margin-top:12px">Signale pro Stunde (links ${fmt(since)}, rechts jetzt)</div>
+      <div class="dt-bars">${buckets.map((n) => `<i style="height:${Math.round((n / peak) * 100)}%" class="${n ? '' : 'zero'}" title="${n}"></i>`).join('')}</div>
+      ${gaps.length ? `<div class="label" style="margin-top:12px">Lücken ab ${GAP_MIN} Min.</div>` + gaps.slice(-8).map((g) => `<div class="lage-row" style="grid-template-columns:1fr auto"><span class="value">${fmt(g.from)} → ${g.to ? fmt(g.to) : 'JETZT'}</span><span class="label" style="color:var(--bone)">${g.min} MIN</span></div>`).join('') : ''}
+    </div>`;
+  }).join('') + `<div class="label" style="margin-top:8px">Testsignale aus der Testzentrale zählen nicht mit.</div>`;
 }
 
 function loadPlan() {
