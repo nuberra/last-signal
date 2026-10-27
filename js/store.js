@@ -31,7 +31,20 @@ function supabaseStore() {
         return q((c) => c.from('locations').insert(rest).select());
       }
     },
-    getLocations: (sinceIso) => q((c) => c.from('locations').select('*').gte('created_at', sinceIso).order('created_at', { ascending: true }).limit(5000)),
+    /* Supabase liefert hoechstens 1000 Zeilen pro Abfrage: neueste zuerst seitenweise holen,
+       damit nie die juengsten Signale fehlen. Hoechstens 30 000 Punkte. */
+    async getLocations(sinceIso) {
+      await ready;
+      const all = [];
+      for (let from = 0; from < 30000; from += 1000) {
+        const { data, error } = await client.from('locations').select('*').gte('created_at', sinceIso)
+          .order('created_at', { ascending: false }).range(from, from + 999);
+        if (error) throw error;
+        all.push(...data);
+        if (data.length < 1000) break;
+      }
+      return all.reverse();
+    },
     getCompletions: () => q((c) => c.from('completions').select('*')),
     setCompletion: (task_id, done, by) => q((c) => c.from('completions').upsert({
       task_id, done, done_by: done ? by : null, done_at: done ? new Date().toISOString() : null, updated_at: new Date().toISOString(),
