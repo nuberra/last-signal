@@ -42,11 +42,11 @@ export function agoText(iso, now = Date.now()) {
 
 export function playerName(players, id) {
   const p = players.find((x) => x.id === id);
-  const slot = CONFIG.BANDITS.find((b) => b.id === id);
+  const slot = CONFIG.BANDITS.find((b) => b.id === id) || (CONFIG.TEST_TRACKER && CONFIG.TEST_TRACKER.id === id ? CONFIG.TEST_TRACKER : null);
   return ((slot && slot.name) || (p && p.name) || (slot && slot.label) || id || '').toUpperCase();
 }
 
-export const playerColor = (id) => (CONFIG.BANDITS.find((b) => b.id === id) || {}).color || '#7A7A74';
+export const playerColor = (id) => (CONFIG.BANDITS.find((b) => b.id === id) || {}).color || '#7A7A74';   /* TEST: Ash */
 
 /* ---- Ton und Vibration ---- */
 let audio = null;

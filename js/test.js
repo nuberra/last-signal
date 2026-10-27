@@ -306,7 +306,7 @@ function bind() {
   $('#otl-go').onclick = () => {
     const pw = $('#otl-pw').value.trim();
     if (!pw) return ($('#otl-out').innerHTML = '<div class="test-out label bad">Passwort fehlt</div>');
-    $('#otl-out').innerHTML = CONFIG.BANDITS.map((b) => {
+    $('#otl-out').innerHTML = [...CONFIG.BANDITS, ...(CONFIG.TEST_TRACKER ? [CONFIG.TEST_TRACKER] : [])].map((b) => {
       const cfg = {
         _type: 'configuration', mode: 3, url: location.origin + '/api/owntracks', auth: true,
         username: b.name.toLowerCase(), password: pw, deviceId: 'handy', tid: b.name.slice(0, 2).toUpperCase(),
@@ -348,7 +348,8 @@ async function runDauertest(hours) {
   let rows;
   try { rows = await store.getLocations(new Date(since).toISOString()); } catch (e) { out.innerHTML = `<div class="test-out label bad">Fehler: ${esc(e.message || e)}</div>`; return; }
   const fmt = (t) => new Date(t).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase();
-  out.innerHTML = CONFIG.BANDITS.map((b) => {
+  const who = [...CONFIG.BANDITS, ...(CONFIG.TEST_TRACKER && rows.some((r) => r.player_id === CONFIG.TEST_TRACKER.id) ? [CONFIG.TEST_TRACKER] : [])];
+  out.innerHTML = who.map((b) => {
     const pts = rows.filter((r) => r.player_id === b.id && r.source !== 'test').sort((a, c) => a.created_at.localeCompare(c.created_at));
     if (!pts.length) return `<div class="dt-card"><div class="display d-s">${esc(b.name)}</div><div class="test-out label bad">Keine Signale in den letzten ${hours} H</div></div>`;
     const bySrc = {};

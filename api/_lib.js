@@ -96,14 +96,22 @@ function nearestPoi(p) {
   return best;
 }
 
-export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || {}).name || id).toUpperCase();
+export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || (CONFIG.TEST_TRACKER && CONFIG.TEST_TRACKER.id === id && CONFIG.TEST_TRACKER) || {}).name || id).toUpperCase();
+
+/* Fairness: Positionen der Gejagten werden im Takt freigegeben (siehe api/reveal.js).
+   Sofort gepusht werden nur Signale beim Abhaken ('task'), "Jetzt senden" ('manual'),
+   Testsignale ('test') und der TEST-Kanal. */
+export const REVEAL_MIN = CONFIG.REVEAL_MIN || 0;
+export const isImmediate = (playerId, source) =>
+  !REVEAL_MIN || ['task', 'manual', 'test'].includes(source) || (CONFIG.TEST_TRACKER && playerId === CONFIG.TEST_TRACKER.id);
 
 /* Ein Push pro Signal, nie zwei:
    - ALARM, wenn der Gejagte neu in den 500-m-Umkreis eines Orts mit OFFENER Aufgabe kommt
      (erledigte Orte zaehlen nicht). Bei OwnTracks hoechstens ein Alarm alle 10 Minuten.
    - sonst NEUES SIGNAL: aus der Web-App immer, aus OwnTracks nur nach 15 Minuten Pause. */
-export async function onSignal(playerId, source = 'web') {
-  const rows = await supa('locations?select=lat,lng,created_at,battery&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2').catch(() =>
+export async function onSignal(playerId, source = 'web', pair = null) {
+  if (!pair && !isImmediate(playerId, source)) return { pushed: null, waiting: 'naechster Takt' };
+  const rows = pair || await supa('locations?select=lat,lng,created_at,battery&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2').catch(() =>
     supa('locations?select=lat,lng,created_at&player_id=eq.' + encodeURIComponent(playerId) + '&order=created_at.desc&limit=2'));
   if (!rows || !rows.length) return { pushed: null };
   const [now, prev] = rows;
@@ -137,7 +145,7 @@ export async function onSignal(playerId, source = 'web') {
     }
   }
   const gap = prev ? (new Date(now.created_at) - new Date(prev.created_at)) / 60000 : Infinity;
-  if (source === 'owntracks' && gap < 15) return { pushed: null, hits };
+  if (source === 'owntracks' && !pair && gap < 15) return { pushed: null, hits };
   const np = nearestPoi(now);
   await sendPush('NEUES SIGNAL ' + who, `${t}${np ? ' · ' + Math.round(np.d) + ' M VON ' + np.name.toUpperCase() : ''}${akku}`, { tag: 'signal-' + playerId });
   return { pushed: 'signal', hits };

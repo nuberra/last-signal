@@ -18,7 +18,8 @@ export default async function handler(req, res) {
   if (!secret) return res.status(501).json([]);
   const { user, pass } = basicAuth(req);
   if ((pass || '').trim() !== secret) return res.status(401).setHeader('WWW-Authenticate', 'Basic realm="last-signal"').json([]);
-  const slot = CONFIG.BANDITS.find((b) => b.name.toLowerCase() === user || b.id === user);
+  const slots = CONFIG.TEST_TRACKER ? [...CONFIG.BANDITS, CONFIG.TEST_TRACKER] : CONFIG.BANDITS;
+  const slot = slots.find((b) => b.name.toLowerCase() === user || b.id === user);
   if (!slot) return res.status(403).json([]);
 
   try {

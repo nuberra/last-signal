@@ -28,7 +28,8 @@ const state = {
   conn: DEMO ? 'demo' : 'connecting',
   tab: 'map',
   players: [],
-  locs: {},            // player_id -> [{lat,lng,created_at,accuracy}]
+  locs: {},            // player_id -> sichtbare Punkte (Gejagte: nur freigegebene)
+  raw: {},             // player_id -> alle gespeicherten Punkte
   completions: {},
   proofs: [],
   inside: new Set(),   // "player|poi" innerhalb 500 m
@@ -51,9 +52,14 @@ const state = {
 const BANDIT_IDS = () => {
   const ids = CONFIG.BANDITS.map((b) => b.id);
   state.players.filter((p) => p.role === 'bandit' && !ids.includes(p.id)).forEach((p) => ids.push(p.id));
+  /* Testgeraet nur zeigen, solange es Punkte hat */
+  const t = CONFIG.TEST_TRACKER;
+  if (t && state.locs[t.id] && state.locs[t.id].length) ids.push(t.id);
   return ids;
 };
 const latest = (id) => { const a = state.locs[id]; return a && a.length ? a[a.length - 1] : null; };
+/* Neuester gespeicherter Punkt, auch wenn noch nicht freigegeben: nur fuer Funkstille. */
+const latestRaw = (id) => { const a = state.raw[id]; return a && a.length ? a[a.length - 1] : null; };
 const allPois = () => POI_CATEGORIES.flatMap((c) => c.items.map((it) => ({ ...it, cat: c.id, catLabel: c.label, key: c.id + ':' + it.name })));
 const visiblePois = () => allPois().filter((p) => prefs.layers[p.cat] && !poiDone(p));
 
@@ -811,7 +817,8 @@ function cardsHtml(ids) {
     const goals = prognosis(id);
     return `<div class="pcard" style="--pc:${color}">
       <div class="row" data-player="${id}"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label ${ageMin(l) > 20 ? 'age-old' : ''}">${agoText(l.created_at)}${bt ? ' · ' + esc(bt) : ''}</span></div>
-      ${silent(l) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(l))} MIN</div>` : ''}
+      ${silent(latestRaw(id)) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(latestRaw(id)))} MIN</div>` : ''}
+      ${isGated(id) ? `<div class="label" style="margin-top:4px">Nächstes Signal ${timeHM(new Date(nextReveal()).toISOString())}</div>` : ''}
       ${lineHtml(id)}
       <div class="goals">${goals.map((x) => `<div class="goal" data-goal="${x.p.lat},${x.p.lng}">
         <span class="num goal-pct">${x.pct}%</span>
@@ -1345,7 +1352,7 @@ const SILENCE_MIN = 25;
 const silenceWarned = {};
 function checkSilence() {
   for (const id of BANDIT_IDS()) {
-    const l = latest(id);
+    const l = latestRaw(id);
     if (!silent(l) || silenceWarned[id] === l.created_at) continue;
     silenceWarned[id] = l.created_at;
     toast('Funkstille ' + playerName(state.players, id), 'Seit ' + Math.round(ageMin(l)) + ' Minuten kein Signal', 'bandit');
@@ -1732,7 +1739,21 @@ function renderExport() {
       <div class="label" style="padding:8px 0">Kommen keine Mitteilungen an: hier neu verbinden. Danach in der Testzentrale den Test-Push wiederholen.</div>
       <button class="btn" id="push-reset">Push neu verbinden</button>
     </div>
+    <div class="section">
+      <div class="section-head"><h2 class="display d-s">Neustart</h2><span class="label">Vor Spielbeginn</span></div>
+      <div class="label" style="padding:8px 0">Löscht alle Standorte (auch TEST), Haken, Foto-Einträge, Notizen, Zeichnungen und Alarme. Für alle Geräte. Nicht rückgängig zu machen.</div>
+      <button class="btn" id="wipe-all">Alle Daten löschen</button>
+    </div>
     <div class="section"><a class="label" href="/test.html" target="_blank">Testzentrale öffnen</a></div>`;
+  $('#wipe-all').onclick = async () => {
+    const v = prompt('Wirklich ALLE Spieldaten löschen? Zum Bestätigen LÖSCHEN eintippen.');
+    if (!v || v.trim().toUpperCase() !== 'LÖSCHEN') return toast('Neustart', 'Abgebrochen');
+    try {
+      await store.resetData(true);
+      toast('Neustart', 'Alle Daten gelöscht. Andere Geräte bitte neu laden.', 'detective');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) { toast('Neustart', 'Fehler: ' + (e.message || e)); }
+  };
   $('#push-reset').onclick = async () => {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -1762,11 +1783,49 @@ function renderExport() {
 
 /* ===================== Live-Daten ===================== */
 
+/* ---- Fairness: Freigabe im Takt ----
+   Fuer Gejagte wird zu jedem Taktpunkt (:00, :20, :40) der neueste Punkt davor sichtbar.
+   Punkte aus 'task' (Aufgabe abgehakt), 'manual' (Jetzt senden) und 'test' sofort.
+   Der TEST-Kanal und Jaeger/Auto sind nicht betroffen. */
+const REVEAL_MS = (CONFIG.REVEAL_MIN || 0) * 60000;
+const IMMEDIATE = new Set(['task', 'manual', 'test']);
+const slotOf = (t) => Math.floor(t / REVEAL_MS) * REVEAL_MS;
+const isGated = (id) => REVEAL_MS > 0 && CONFIG.BANDITS.some((b) => b.id === id);
+
+function revealedPts(raw, now = Date.now()) {
+  const out = [];
+  let cand = null;
+  for (const p of raw) {
+    const t = new Date(p.created_at).getTime();
+    if (cand && slotOf(t) > slotOf(cand.t)) { out.push(cand.p); cand = null; }
+    if (IMMEDIATE.has(p.source)) out.push(p);
+    else cand = { p, t };
+  }
+  if (cand && slotOf(cand.t) + REVEAL_MS <= now) out.push(cand.p);
+  return out.sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+/* Sichtbare Punkte neu berechnen; true, wenn sich fuer einen Gejagten etwas geaendert hat. */
+function rebuildVisible(ids = Object.keys(state.raw)) {
+  let changed = false;
+  for (const id of ids) {
+    const raw = state.raw[id] || [];
+    const vis = isGated(id) ? revealedPts(raw) : raw;
+    const before = state.locs[id];
+    if (!before || before.length !== vis.length || (vis.length && before[before.length - 1] !== vis[vis.length - 1])) changed = changed || isGated(id);
+    state.locs[id] = vis;
+  }
+  return changed;
+}
+
+const nextReveal = () => slotOf(Date.now()) + REVEAL_MS;
+
 function addLoc(row) {
-  const arr = state.locs[row.player_id] ||= [];
-  if (arr.some((x) => x.id === row.id)) return;
+  const arr = state.raw[row.player_id] ||= [];
+  if (arr.some((x) => x.id === row.id)) return false;
   arr.push(row);
   arr.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return rebuildVisible([row.player_id]);
 }
 
 async function loadAll(initial) {
@@ -1775,7 +1834,7 @@ async function loadAll(initial) {
     const [players, locs, completions, proofs, items] = await Promise.all([store.getPlayers(), store.getLocations(since), store.getCompletions(), store.getProofs(), store.getItems().catch(() => [])]);
     state.items = items;
     state.players = players;
-    state.locs = {};
+    state.locs = {}; state.raw = {};
     locs.forEach(addLoc);
     state.completions = Object.fromEntries(completions.map((c) => [c.task_id, c]));
     state.proofs = proofs;
@@ -1795,9 +1854,10 @@ function onEvent({ table, type, row }) {
     state.players = state.players.filter((p) => p.id !== row.id).concat(type === 'DELETE' ? [] : [row]);
     drawPlayers(); renderCards();
   } else if (table === 'locations' && type === 'INSERT') {
-    addLoc(row);
+    const changed = addLoc(row);
     if (row.player_id === 'car') { drawCar(); renderCards(); renderLage(); return; }
     if (row.player_id.startsWith('h:')) { drawHunters(); renderLage(); return; }
+    if (isGated(row.player_id) && !changed) return;   /* noch nicht freigegeben */
     drawPlayers(); evaluateProximity(false); drawStays(); drawLineGuess(); renderCards(); renderLage(); if (compass) updateCompass();
   } else if (table === 'completions') {
     const before = state.completions[row.task_id];
@@ -1847,7 +1907,11 @@ function start() {
   });
   pushActive().then((on) => { state.push = on; renderPush(); });
   /* "vor X Min" und Ausgrauen alter Signale laufend aktualisieren */
-  setInterval(() => { drawPlayers(); drawHunters(); renderCards(); renderLage(); checkSilence(); }, 30000);
+  setInterval(() => {
+    /* Taktpunkt erreicht: neue Positionen freigeben */
+    if (rebuildVisible()) { evaluateProximity(false); drawStays(); drawLineGuess(); if (state.soundOn) beep('task'); }
+    drawPlayers(); drawHunters(); renderCards(); renderLage(); checkSilence();
+  }, 15000);
   setInterval(refreshPoiIcons, 5 * 60000);   /* Oeffnungszeiten aendern Sichtbarkeit */
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(false); });
 }

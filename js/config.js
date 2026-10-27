@@ -18,4 +18,12 @@ export const CONFIG = {
     { id: 'b1', name: 'MARVIN', label: 'BANDIT 01', color: '#FF4D0F' },
     { id: 'b2', name: 'JULIEN', label: 'BANDIT 02', color: '#F0EBE1' },
   ],
+
+  /* Fairness: Jaeger sehen Positionen der Gejagten nur im Takt (Minuten, ab :00).
+     Sofort sichtbar bleiben Signale beim Abhaken ('task') und "Jetzt senden" ('manual'). */
+  REVEAL_MIN: 20,
+
+  /* Testkanal fuer OwnTracks (Admin-Handy). Erscheint auf der Jaeger-Karte als TEST,
+     loest keinen Funkstille-Alarm aus und wird mit "Alle Daten loeschen" entfernt. */
+  TEST_TRACKER: { id: 'tst', name: 'TEST', label: 'TESTGERÄT', color: '#7A7A74' },
 };
