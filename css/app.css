@@ -399,3 +399,20 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
 .dt-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; margin-top: 6px; border-bottom: 1px solid var(--ash-26); }
 .dt-bars i { flex: 1; background: var(--bone); min-height: 1px; }
 .dt-bars i.zero { background: var(--orange); height: 3px !important; }
+
+/* ---- Entschlackte Jaeger-Seite ---- */
+.mobile-tabs, .side-tabs { grid-template-columns: repeat(3, 1fr); }
+.tabs button { font-size: 12px; letter-spacing: 0.12em; }
+.more-seg { margin-bottom: 16px; }
+.more-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--ash-26); border-bottom: 1px solid var(--ash-26); }
+#lage-wrap, #notes-wrap, #export-wrap { padding-top: 8px; }
+.pcard .row[data-player] { cursor: pointer; }
+.age-old { color: var(--bone); background: var(--ash-26); padding: 0 4px; }
+.goals { margin-top: 8px; display: grid; gap: 2px; }
+.goal { display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: start; padding: 6px 0; border-top: 1px solid var(--ash-12); cursor: pointer; }
+.goal .value { font-size: 13px; }
+.goal-pct { font-size: 15px; color: var(--bone); }
+.goal .race { margin-top: 2px; }
+.card-btns { margin-top: 8px; }
+.card-btns .btn { flex: 0 0 auto; min-height: 32px; }
+@media (hover: hover) { .goal:hover { background: var(--ash-12); } }

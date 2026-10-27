@@ -11,12 +11,12 @@ import {
 
 const L = window.L;
 const AUTH_KEY = 'ls-hunter-ok';
-const PREF_KEY = 'ls-hunter-prefs';
+const PREF_KEY = 'ls-hunter-prefs-v2';
 const STALE_MIN = 30;
 const root = $('#root');
 
-const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: true, zeichnungen: true, jaeger: true, halte: true };
-let prefs = { layers: { ...DEFAULT_LAYERS }, rings: true, reach: true, tiles: 'light', route: 'all', sheet: false };
+const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: false, zeichnungen: false, jaeger: true, halte: true };
+let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
 const NAME_KEY = 'ls-hunter-name';
@@ -35,6 +35,7 @@ const state = {
   alarms: [],
   alarmLog: [],
   desk: false,
+  sub: 'lage',
   unseenTasks: 0,
   soundOn: false,
   push: false,
@@ -115,10 +116,7 @@ function renderShell() {
           <button class="btn" id="b-fit">Alle</button>
           <button class="btn" id="b-me">Ich</button>
           <button class="btn" id="b-car">Auto</button>
-          <button class="btn" id="b-draw">Zeichnen</button>
           <button class="btn" id="b-compass">Kompass</button>
-          <button class="btn" id="b-time">Verlauf</button>
-          <button class="btn" id="b-tiles"></button>
         </div>
         <div class="layers" id="layers" hidden></div>
         <div class="drawbar" id="drawbar" hidden></div>
@@ -133,34 +131,48 @@ function renderShell() {
       <aside class="side">
         <nav class="tabs side-tabs">
           <button data-tab="bandits">Bandits</button>
-          <button data-tab="lage">Lage</button>
-          <button data-tab="notes">Notizen</button>
           <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
-          <button data-tab="export">Export</button>
+          <button data-tab="more">Mehr</button>
         </nav>
-        <div class="view scroll" id="v-notes" hidden><div class="wrap" id="notes-wrap"></div></div>
         <div class="view scroll" id="v-bandits" hidden><div class="wrap" id="bandits-wrap"></div></div>
-        <div class="view scroll" id="v-lage" hidden><div class="wrap" id="lage-wrap"></div></div>
         <div class="view scroll" id="v-tasks" hidden><div class="wrap" id="tasks-wrap"></div></div>
-        <div class="view scroll" id="v-export" hidden><div class="wrap" id="export-wrap"></div></div>
+        <div class="view scroll" id="v-more" hidden>
+          <div class="wrap">
+            <div class="seg more-seg">
+              <button class="btn" data-sub="lage">Lage</button>
+              <button class="btn" data-sub="notes">Notizen</button>
+              <button class="btn" data-sub="export">Export</button>
+            </div>
+            <div class="more-tools">
+              <span class="label">Werkzeuge</span>
+              <div class="btn-row">
+                <button class="btn small" id="b-draw">Zeichnen</button>
+                <button class="btn small" id="b-time">Verlauf</button>
+                <button class="btn small" id="b-tiles"></button>
+              </div>
+            </div>
+          </div>
+          <div class="wrap" id="lage-wrap"></div>
+          <div class="wrap" id="notes-wrap" hidden></div>
+          <div class="wrap" id="export-wrap" hidden></div>
+        </div>
       </aside>
       </div>
       <nav class="tabs mobile-tabs">
         <button data-tab="map">Karte</button>
-        <button data-tab="lage">Lage</button>
-        <button data-tab="notes">Notizen</button>
         <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
-        <button data-tab="export">Export</button>
+        <button data-tab="more">Mehr</button>
       </nav>
     </div>`;
   root.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => setTab(b.dataset.tab));
+  root.querySelectorAll('[data-sub]').forEach((b) => b.onclick = () => setSub(b.dataset.sub));
   $('#sheet-handle').onclick = () => { prefs.sheet = !prefs.sheet; savePrefs(); $('#sheet').classList.toggle('collapsed', !prefs.sheet); };
   $('#b-layers').onclick = () => { const el = $('#layers'); el.hidden = !el.hidden; $('#b-layers').classList.toggle('on', !el.hidden); };
   $('#b-fit').onclick = fitAll;
   $('#b-me').onclick = toggleMe;
   $('#b-tiles').onclick = () => { prefs.tiles = TILE_ORDER[(TILE_ORDER.indexOf(prefs.tiles) + 1) % TILE_ORDER.length]; savePrefs(); applyTiles(); };
-  $('#b-draw').onclick = () => setDrawing(!state.drawing);
-  $('#b-time').onclick = toggleReplay;
+  $('#b-draw').onclick = () => { if (!state.desk) setTab('map'); setDrawing(!state.drawing); };
+  $('#b-time').onclick = () => { if (!state.desk) setTab('map'); setTimeout(toggleReplay, 50); };
   $('#b-compass').onclick = () => {
     const ids = BANDIT_IDS().filter((id) => latest(id));
     if (!ids.length) return toast('Kompass', 'Noch kein Signal');
@@ -206,16 +218,25 @@ function setTab(tab) {
   root.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   $('#v-map').hidden = !state.desk && tab !== 'map';
   $('#v-bandits').hidden = tab !== 'bandits';
-  $('#v-lage').hidden = tab !== 'lage';
-  $('#v-notes').hidden = tab !== 'notes';
-  if (tab === 'notes') renderNotes();
   $('#v-tasks').hidden = tab !== 'tasks';
-  $('#v-export').hidden = tab !== 'export';
-  if (tab === 'lage') renderLage();
+  $('#v-more').hidden = tab !== 'more';
   if (tab === 'map') setTimeout(() => map.invalidateSize(), 0);
   if (tab === 'bandits') renderCards();
   if (tab === 'tasks') { state.unseenTasks = 0; renderBadge(); renderTasks(); }
-  if (tab === 'export') renderExport();
+  if (tab === 'more') setSub(state.sub);
+}
+
+/* Unterbereiche von "Mehr": Lage, Notizen, Export */
+const isSub = (sub) => state.tab === 'more' && state.sub === sub;
+function setSub(sub) {
+  state.sub = sub;
+  root.querySelectorAll('[data-sub]').forEach((b) => b.classList.toggle('on', b.dataset.sub === sub));
+  $('#lage-wrap').hidden = sub !== 'lage';
+  $('#notes-wrap').hidden = sub !== 'notes';
+  $('#export-wrap').hidden = sub !== 'export';
+  if (sub === 'lage') renderLage();
+  if (sub === 'notes') renderNotes();
+  if (sub === 'export') renderExport();
 }
 
 function renderConn() {
@@ -345,18 +366,33 @@ function poiPopup(it, c) {
     ${from && !car ? `<div><a href="${gmaps(from, it, 'walking')}" target="_blank" rel="noopener">Route</a></div>` : ''}`;
 }
 
+/* Ort sichtbar? Erledigte und mehr als 60 min geschlossene Orte nur mit "Alle Orte zeigen". */
+function poiRelevant(it, now = new Date()) {
+  if (prefs.showAll) return true;
+  if (poiDone(it)) return false;
+  const st = openState(it.hours, now);
+  return st.always || st.open || (st.next && st.next - now < 60 * 60000);
+}
+
 function applyLayers() {
   if (!ringGroup) return;
   ringGroup.clearLayers();
   const hot = new Set([...state.inside].map((k) => k.split('|')[1]));
+  for (const m of poiMarkers) {
+    const g = poiGroups[m._ls.c.id];
+    const show = poiRelevant(m._ls.it);
+    if (show && !g.hasLayer(m)) g.addLayer(m);
+    if (!show && g.hasLayer(m)) g.removeLayer(m);
+  }
   for (const c of POI_CATEGORIES) {
     const on = !!prefs.layers[c.id];
     if (on && !map.hasLayer(poiGroups[c.id])) poiGroups[c.id].addTo(map);
     if (!on && map.hasLayer(poiGroups[c.id])) map.removeLayer(poiGroups[c.id]);
-    if (!on || !prefs.rings) continue;
+    if (!on) continue;
     for (const it of c.items) {
-      if (poiDone(it)) continue;
+      if (poiDone(it) || !poiRelevant(it)) continue;
       const isHot = hot.has(c.id + ':' + it.name);
+      if (!prefs.rings && !isHot) continue;
       L.circle([it.lat, it.lng], {
         radius: ALERT_RADIUS_M, color: isHot ? '#FF4D0F' : lineColor(), weight: isHot ? 3 : 1.5,
         opacity: isHot ? 0.9 : 0.55, dashArray: isHot ? null : '6 6',
@@ -389,7 +425,7 @@ async function loadLive(force) {
     if (state.osm) buildLive();
   }
   renderLayers();
-  if (state.tab === 'lage') renderLage();
+  if (isSub('lage')) renderLage();
 }
 
 function buildLive() {
@@ -480,7 +516,8 @@ function renderLayers() {
     <div class="lhead"><span class="label">Ebenen</span><button class="btn small quiet" id="l-close">Zu</button></div>
     <div class="lsub label">Feste Orte · mit Alarm</div>
     ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length))).join('')}
-    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M<small>nur offene Orte</small></span></div>
+    <div class="layer-row" data-showall="1"><input type="checkbox" class="check" ${prefs.showAll ? 'checked' : ''} tabindex="-1"><span class="name">Auch erledigte und geschlossene Orte<small>sonst ausgeblendet</small></span></div>
+    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M bei allen Orten<small>sonst nur, wenn ein Gejagter drin ist</small></span></div>
     <div class="lsub label">OpenStreetMap · ohne Alarm${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''}</div>
     ${LIVE_LAYERS.map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom + (l.tasks.length ? ' · Aufgabe ' + l.tasks.map(taskCode).join('/') : ''))).join('')}
     <div class="lsub label">Jäger</div>
@@ -501,6 +538,7 @@ function renderLayers() {
     applyLayers(); renderLayers(); evaluateProximity(true); renderCards(); drawItems(); drawProofs(); drawHunters(); drawStays();
   });
   el.querySelector('[data-rings]').onclick = () => { prefs.rings = !prefs.rings; savePrefs(); applyLayers(); renderLayers(); };
+  el.querySelector('[data-showall]').onclick = () => { prefs.showAll = !prefs.showAll; savePrefs(); applyLayers(); renderLayers(); };
   el.querySelector('[data-reach]').onclick = () => { prefs.reach = !prefs.reach; savePrefs(); drawPlayers(); renderLayers(); };
   el.querySelectorAll('[data-route]').forEach((b) => b.onclick = () => { prefs.route = b.dataset.route; savePrefs(); renderLayers(); drawPlayers(); });
   el.querySelectorAll('[data-all]').forEach((b) => b.onclick = () => {
@@ -606,7 +644,7 @@ function toggleMe() {
     if (meMarker) { map.removeLayer(meMarker); meMarker = null; }
     if (meCircle) { map.removeLayer(meCircle); meCircle = null; }
     state.me = null; b.classList.remove('on'); b.textContent = 'Ich';
-    if (state.tab === 'lage') renderLage();
+    if (isSub('lage')) renderLage();
     return;
   }
   if (!('geolocation' in navigator)) return toast('Ich', 'Standort nicht verfügbar');
@@ -626,7 +664,7 @@ function toggleMe() {
     b.textContent = 'Ich ±' + Math.round(fix.acc) + ' M';
     shareMe(fix);
     if (first) { first = false; map.setView(ll, Math.max(map.getZoom(), 16)); }
-    if (state.tab === 'lage') renderLage();
+    if (isSub('lage')) renderLage();
   }, (e) => {
     toast('Ich', e.code === 1 ? 'Standort nicht erlaubt' : 'Kein GPS-Signal');
     if (e.code === 1) { b.classList.remove('on'); b.textContent = 'Ich'; navigator.geolocation.clearWatch(meWatch); meWatch = null; }
@@ -736,21 +774,18 @@ function renderCards() {
   const ids = BANDIT_IDS();
   const seen = ids.map(latest).filter(Boolean);
   $('#sheet-sum').textContent = ids.map((id) => { const l = latest(id); return playerName(state.players, id) + ' ' + (l ? timeHM(l.created_at) : '--:--'); }).join(' · ');
-  el.innerHTML = cardsHtml(ids, 2);
+  el.innerHTML = cardsHtml(ids);
   bindCards(el);
   const side = $('#bandits-wrap');
   if (side && state.desk && state.tab === 'bandits') {
     side.innerHTML = `
       <div class="section-head"><h2 class="display d-s">Bandits</h2><span class="label">${seen.length ? 'Letztes Signal ' + timeHM(seen.map((l) => l.created_at).sort().pop()) : 'Noch kein Signal'}</span></div>
-      ${cardsHtml(ids, 5)}
+      ${cardsHtml(ids)}
       <div class="section">
         <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Umkreis ${ALERT_RADIUS_M} M</span></div>
         ${state.alarmLog.length ? state.alarmLog.map((a) => `<div class="log-row" data-poi="${esc(a.poi.key)}"><span class="label">${timeHM(a.at)}</span><span class="value" style="font-size:13px">${esc(a.text.toUpperCase())}</span></div>`).join('') : '<div class="label" style="padding:16px 0">Noch kein Alarm</div>'}
       </div>
-      <div class="section">
-        <div class="section-head"><h2 class="display d-s">Verlauf</h2><span class="label">Letzte Signale</span></div>
-        ${historyHtml()}
-      </div>`;
+`;
     bindCards(side);
     side.querySelectorAll('[data-poi]').forEach((r) => r.onclick = () => {
       const p = allPois().find((x) => x.key === r.dataset.poi); if (p) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 15));
@@ -766,34 +801,33 @@ function historyHtml() {
   return rows.map((l) => `<div class="log-row" data-loc="${l.lat},${l.lng}" style="--pc:${playerColor(l.pid)}"><span class="label">${timeHM(l.created_at)}</span><span class="value" style="font-size:13px"><span class="dot"></span>${esc(playerName(state.players, l.pid))} ${formatCoordinate(l.lat, l.lng)}</span></div>`).join('');
 }
 
-function bindCards(el) {
-  el.querySelectorAll('[data-player]').forEach((c) => c.onclick = () => {
-    const l = latest(c.dataset.player); if (l) map.setView([l.lat, l.lng], Math.max(map.getZoom(), 16));
-  });
-}
-
-function cardExtra(id, l) {
-  const parts = [];
-  const bt = batteryText(id); if (bt) parts.push(bt);
-  const mo = motion(id); if (mo) parts.push(mo.dir + ' ' + mo.kmh.toFixed(1) + ' KM/H');
-  const st = nearestStation(l); if (st) parts.push(st.s[2].toUpperCase() + ' ' + formatDistance(st.d));
-  const car = carPos(); if (car) parts.push('AUTO ' + driveMin(distanceM(car, l)) + ' MIN');
-  return (silent(l) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(l))} MIN</div>` : '')
-    + (parts.length ? `<div class="label" style="margin-top:6px;color:var(--bone-60)">${esc(parts.join(' · '))}</div>` : '')
-    + lineHtml(id);
-}
-
-function cardsHtml(ids, nearCount) {
+/* Bandit-Karte: Wo sind sie (Signal, Akku), wohin (Linie, 3 Ziele), schaffen wir es (Wettlauf). */
+function cardsHtml(ids) {
   return ids.map((id) => {
     const l = latest(id);
-    const near = nearList(id).slice(0, nearCount);
-    return `<div class="pcard" data-player="${id}" style="--pc:${playerColor(id)}">
-      <div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label">${l ? 'Zuletzt gesehen ' + agoText(l.created_at) : 'Kein Signal'}</span></div>
-      ${l ? `<div class="row" style="margin-top:4px"><span class="value" style="font-size:13px">${formatCoordinate(l.lat, l.lng)}</span><span class="label">${timeHM(l.created_at)}${l.accuracy ? ' · ±' + l.accuracy + ' M' : ''}</span></div>
-      <div class="near">${near.map((n) => `<div class="value"><span class="${n.d <= ALERT_RADIUS_M ? 'hot' : ''}">${formatDistance(n.d)}</span> <span class="muted">${esc((n.poi.code || n.poi.tasks.map(taskCode).join('/')) + ' ' + n.poi.name.toUpperCase())}</span></div>`).join('')}</div>
-      ${cardExtra(id, l)}` : ''}
+    const color = playerColor(id);
+    if (!l) return `<div class="pcard" style="--pc:${color}"><div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label">Kein Signal</span></div></div>`;
+    const bt = batteryText(id);
+    const goals = prognosis(id);
+    return `<div class="pcard" style="--pc:${color}">
+      <div class="row" data-player="${id}"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label ${ageMin(l) > 20 ? 'age-old' : ''}">${agoText(l.created_at)}${bt ? ' · ' + esc(bt) : ''}</span></div>
+      ${silent(l) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(l))} MIN</div>` : ''}
+      ${lineHtml(id)}
+      <div class="goals">${goals.map((x) => `<div class="goal" data-goal="${x.p.lat},${x.p.lng}">
+        <span class="num goal-pct">${x.pct}%</span>
+        <div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div>
+        ${raceHtml(id, x.p)}</div></div>`).join('')}</div>
+      <div class="btn-row card-btns"><button class="btn small" data-compass="${id}">Kompass</button><button class="btn small quiet" data-player="${id}">Auf Karte</button></div>
     </div>`;
   }).join('');
+}
+
+function bindCards(el) {
+  el.querySelectorAll('[data-player]').forEach((c) => c.onclick = () => {
+    const l = latest(c.dataset.player); if (l) { if (!state.desk) setTab('map'); map.setView([l.lat, l.lng], Math.max(map.getZoom(), 16)); }
+  });
+  el.querySelectorAll('[data-goal]').forEach((c) => c.onclick = () => map.setView(c.dataset.goal.split(',').map(Number), Math.max(map.getZoom(), 15)));
+  el.querySelectorAll('[data-compass]').forEach((b) => b.onclick = (e) => { e.stopPropagation(); openCompass(b.dataset.compass); });
 }
 
 /* ===================== Lage: Auto, Wege, Termine, Haltestellen ===================== */
@@ -817,7 +851,7 @@ function routeLink(from, to, mode, text = 'Route') {
 }
 
 function renderLage() {
-  const el = $('#lage-wrap'); if (!el || state.tab !== 'lage') return;
+  const el = $('#lage-wrap'); if (!el || !isSub('lage')) return;
   const car = carPos();
   const me = state.me;
   const appt = nextAppointment();
@@ -857,13 +891,6 @@ function renderLage() {
     <div class="section">
       <div class="section-head"><h2 class="display d-s">Wege</h2><span class="label">Schätzung · Route = Google Maps</span></div>
       ${ways}
-    </div>
-
-    <div class="section">
-      <div class="section-head"><h2 class="display d-s">Prognose</h2><span class="label">Nächster Ort</span></div>
-      ${BANDIT_IDS().map((id) => { const pr = prognosis(id); return pr.length ? `<div class="pcard" style="--pc:${playerColor(id)}"><div class="row"><span class="display d-s">${esc(playerName(state.players, id))}</span></div>
-        ${pr.map((x) => `<div class="hot-row" data-ll="${x.p.lat},${x.p.lng}" style="grid-template-columns:48px 1fr"><span class="num hot-rank">${x.pct}%</span><div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div><div class="label" style="margin-top:2px">${esc(x.why.join(' · '))}</div>${raceHtml(id, x.p)}</div></div>`).join('')}</div>` : ''; }).join('') || '<div class="label" style="padding:8px 0">Noch kein Signal</div>'}
-      <div class="label" style="padding:8px 0">Gewichtet nach Nähe, Bewegungsrichtung und anstehenden Pflichtterminen. Nur offene Orte.</div>
     </div>
 
     ${hunterIds().length ? `<div class="section">
@@ -1018,7 +1045,7 @@ async function deleteItem(id) {
 }
 
 function renderNotes() {
-  const el = $('#notes-wrap'); if (!el || state.tab !== 'notes') return;
+  const el = $('#notes-wrap'); if (!el || !isSub('notes')) return;
   const list = notes().slice().reverse();
   el.innerHTML = `
     <div class="section-head"><h2 class="display d-s">Notizen</h2><span class="label">Für beide Jäger · live</span></div>
@@ -1683,7 +1710,7 @@ function buildExport() {
 }
 
 function renderExport() {
-  const el = $('#export-wrap'); if (!el) return;
+  const el = $('#export-wrap'); if (!el || !isSub('export')) return;
   const text = buildExport();
   el.innerHTML = `
     <div class="section-head"><h2 class="display d-s">Lagebericht</h2><span class="label">${text.length} Zeichen</span></div>
@@ -1787,7 +1814,7 @@ function onEvent({ table, type, row }) {
     }
     renderTasks();
     refreshPoiIcons(); buildLive(); evaluateProximity(true); renderCards(); renderLage();
-    if (state.tab === 'export') renderExport();
+    if (isSub('export')) renderExport();
   } else if (table === 'hunter_items') {
     if (type === 'DELETE') state.items = state.items.filter((i) => i.id !== row.id);
     else {
@@ -1821,7 +1848,7 @@ function start() {
   pushActive().then((on) => { state.push = on; renderPush(); });
   /* "vor X Min" und Ausgrauen alter Signale laufend aktualisieren */
   setInterval(() => { drawPlayers(); drawHunters(); renderCards(); renderLage(); checkSilence(); }, 30000);
-  setInterval(refreshPoiIcons, 5 * 60000);
+  setInterval(refreshPoiIcons, 5 * 60000);   /* Oeffnungszeiten aendern Sichtbarkeit */
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadAll(false); });
 }
 
