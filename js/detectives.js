@@ -596,9 +596,18 @@ function drawPlayers() {
       };
     }
     const shown = pts.filter((p) => new Date(p.created_at).getTime() >= since);
-    pl.route.setLatLngs(shown.map((p) => [p.lat, p.lng]));
+    /* Wer stillsteht, erzeugt durch GPS-Zittern viele Punkte nebeneinander. Gezeichnet wird
+       ein Punkt nur, wenn er mindestens 40 m vom zuletzt gezeichneten entfernt ist
+       (Abhak-Punkte immer). Der Aufenthalt erscheint als HALT-Schild. */
+    const route = [];
+    shown.forEach((p, i) => {
+      const prev = route[route.length - 1];
+      if (!prev || p.source === 'task' || distanceM(prev, p) >= 40) route.push(p);
+      else if (i === shown.length - 1) route[route.length - 1] = p;
+    });
+    pl.route.setLatLngs(route.map((p) => [p.lat, p.lng]));
     pl.dots.clearLayers();
-    shown.slice(0, -1).forEach((p) => {
+    route.slice(0, -1).forEach((p) => {
       L.circleMarker([p.lat, p.lng], { renderer: canvas(), radius: 4, color: '#0C0C0E', weight: 1, fillColor: color, fillOpacity: 1 })
         .bindTooltip(timeHM(p.created_at) + (p.source === 'owntracks' ? ' · OT' : ''), { className: 'ls-tip' }).addTo(pl.dots);
     });

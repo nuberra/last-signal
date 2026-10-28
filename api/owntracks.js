@@ -28,13 +28,16 @@ export default async function handler(req, res) {
     const ts = typeof msg.tst === 'number' ? new Date(msg.tst * 1000) : new Date();
     /* Ausduennen: OwnTracks sendet im Modus Move teils alle paar Sekunden. Gespeichert wird
        ein Punkt nur, wenn seit dem letzten mindestens 60 s vergangen sind oder er 75 m weiter
-       liegt (und mindestens 10 s spaeter). So bleibt die Route genau, aber die Datenmenge klein. */
+       liegt (und mindestens 10 s spaeter); bei Stillstand alle 5 Minuten. So bleibt die Route genau, aber die Datenmenge klein. */
     const [last] = await supa('locations?select=lat,lng,created_at&player_id=eq.' + slot.id + '&order=created_at.desc&limit=1').catch(() => []);
     if (last) {
       const dt = (ts - new Date(last.created_at)) / 1000;
       const dist = distanceM(last, { lat: msg.lat, lng: msg.lon });
       /* aeltere Punkte (nachgesendet nach Funkloch) immer speichern */
       if (dt >= 0 && (dt < 10 || (dt < 60 && dist < 75))) return res.status(200).json([]);
+      /* Stillstand (innerhalb der GPS-Ungenauigkeit): hoechstens alle 5 Minuten ein Punkt */
+      const still = Math.max(50, Math.min(typeof msg.acc === 'number' ? msg.acc : 0, 150));
+      if (dt >= 0 && dt < 300 && dist < still) return res.status(200).json([]);
     }
     await insertLocation({
       player_id: slot.id, lat: msg.lat, lng: msg.lon,
