@@ -1856,6 +1856,11 @@ function renderExport() {
     </div>
     <textarea class="export-text" id="export-text" readonly>${esc(text)}</textarea>
     <div class="section">
+      <div class="section-head"><h2 class="display d-s">Claude einrichten</h2><span class="label">Einmal pro Chat</span></div>
+      <div class="label" style="padding:8px 0">Startprompt für einen neuen Claude-Chat: Regeln, Aufgaben, Orte, Termine und Antwortformat. Einmal einfügen, danach nur noch Lageberichte schicken.</div>
+      <div class="btn-row"><button class="btn" id="copy-prompt">Startprompt kopieren</button><a class="btn quiet" href="/claude-prompt.md" target="_blank">Ansehen</a></div>
+    </div>
+    <div class="section">
       <div class="section-head"><h2 class="display d-s">Antwort importieren</h2><span class="label">Von Claude</span></div>
       <div class="label" style="padding:8px 0">Die komplette Antwort von Claude hier einfügen. Die Ziele erscheinen als KI-Marken auf der Karte, die Empfehlung unter Notizen.</div>
       <textarea id="import-text" rows="6" placeholder="Antwort mit dem JSON-Block einfügen"></textarea>
@@ -1873,6 +1878,13 @@ function renderExport() {
       <button class="btn" id="wipe-all">Alle Daten löschen</button>
     </div>
     <div class="section"><a class="label" href="/test.html" target="_blank">Testzentrale öffnen</a></div>`;
+  $('#copy-prompt').onclick = async () => {
+    try {
+      const t = await (await fetch('/claude-prompt.md', { cache: 'no-store' })).text();
+      try { await navigator.clipboard.writeText(t); toast('Startprompt', 'Kopiert. In einen neuen Claude-Chat einfügen.'); }
+      catch { const ta = $('#export-text'); ta.value = t; ta.select(); toast('Startprompt', 'Steht jetzt im Textfeld oben, dort kopieren'); }
+    } catch { toast('Startprompt', 'Nicht erreichbar'); }
+  };
   $('#wipe-all').onclick = async () => {
     const v = prompt('Wirklich ALLE Spieldaten löschen? Zum Bestätigen LÖSCHEN eintippen.');
     if (!v || v.trim().toUpperCase() !== 'LÖSCHEN') return toast('Neustart', 'Abgebrochen');
