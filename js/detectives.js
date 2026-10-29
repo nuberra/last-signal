@@ -16,7 +16,7 @@ const STALE_MIN = 30;
 const root = $('#root');
 
 const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: false, zeichnungen: false, jaeger: true, halte: true };
-let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false, focus: 'all' };
+let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false, focus: 'all', sideW: 440, sideOff: false };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
 const NAME_KEY = 'ls-hunter-name';
@@ -118,6 +118,7 @@ function renderShell() {
         <div id="map"></div>
         <div class="map-overlay map-top" id="alarms"></div>
         <div class="map-overlay map-tools">
+          <button class="btn desk-only" id="b-side"></button>
           <button class="btn" id="b-who"></button>
           <button class="btn" id="b-layers">Ebenen</button>
           <button class="btn" id="b-fit">Alle</button>
@@ -136,6 +137,7 @@ function renderShell() {
         </div>
       </div>
       <aside class="side">
+        <div class="side-grip" id="side-grip" title="Ziehen: Breite ändern · Doppelklick: Standard"></div>
         <nav class="tabs side-tabs">
           <button data-tab="bandits">Bandits</button>
           <button data-tab="tasks">Aufgaben<span class="badge" hidden></span></button>
@@ -221,6 +223,34 @@ function renderShell() {
   };
   mq.addEventListener('change', applyDesk);
   applyDesk();
+  initSide();
+}
+
+/* Desktop: Seitenleiste ein- und ausklappen und mit dem linken Rand in der Breite ziehen */
+const SIDE_MIN = 300, SIDE_MAX = 900;
+function applySide() {
+  const w = Math.min(SIDE_MAX, Math.max(SIDE_MIN, prefs.sideW || 440));
+  document.body.style.setProperty('--side-w', w + 'px');
+  document.body.classList.toggle('side-off', !!prefs.sideOff);
+  const b = $('#b-side'); if (b) { b.textContent = prefs.sideOff ? '‹ Leiste' : 'Leiste ›'; b.title = prefs.sideOff ? 'Seitenleiste zeigen' : 'Seitenleiste ausblenden'; }
+  if (map) setTimeout(() => map.invalidateSize(), 50);
+}
+function initSide() {
+  applySide();
+  $('#b-side').onclick = () => { prefs.sideOff = !prefs.sideOff; savePrefs(); applySide(); };
+  const grip = $('#side-grip');
+  grip.ondblclick = () => { prefs.sideW = 440; savePrefs(); applySide(); };
+  grip.onpointerdown = (e) => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId); document.body.classList.add('side-drag');
+    grip.onpointermove = (ev) => {
+      prefs.sideW = Math.min(SIDE_MAX, Math.max(SIDE_MIN, window.innerWidth - ev.clientX));
+      document.body.style.setProperty('--side-w', prefs.sideW + 'px');
+    };
+    grip.onpointerup = () => {
+      grip.onpointermove = grip.onpointerup = null; document.body.classList.remove('side-drag');
+      savePrefs(); applySide();
+    };
+  };
 }
 
 function setTab(tab) {

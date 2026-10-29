@@ -229,6 +229,10 @@ body.hunter #toasts { top: auto; bottom: calc(72px + var(--safe-bottom)); flex-d
 /* ---- Jaeger: Rahmen mobil / Desktop ---- */
 .app-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .side { display: contents; }
+.side-grip { display: none; position: absolute; z-index: 5; top: 0; bottom: 0; left: -6px; width: 10px; cursor: col-resize; }
+.side-grip:hover, body.side-drag .side-grip { background: var(--bone); opacity: 0.4; }
+body.side-drag { user-select: none; cursor: col-resize; }
+.desk-only { display: none; }
 .side-tabs { display: none; }
 .log-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--ash-26); cursor: pointer; align-items: baseline; }
 .log-row .dot { display: inline-block; width: 8px; height: 8px; background: var(--pc, var(--ash)); margin-right: 8px; vertical-align: 1px; }
@@ -237,7 +241,10 @@ body.hunter #toasts { top: auto; bottom: calc(72px + var(--safe-bottom)); flex-d
 @media (min-width: 1024px) {
   body.desk .app-body { flex-direction: row; }
   body.desk #v-map { flex: 1 1 auto; display: block !important; }
-  body.desk .side { display: flex; flex-direction: column; flex: 0 0 440px; width: 440px; min-height: 0; border-left: 2px solid var(--bone); }
+  body.desk .side { position: relative; display: flex; flex-direction: column; flex: 0 0 var(--side-w, 440px); width: var(--side-w, 440px); min-height: 0; border-left: 2px solid var(--bone); }
+  body.desk.side-off .side { display: none; }
+  body.desk .side-grip { display: block; }
+  body.desk .desk-only { display: inline-flex; }
   body.desk .side-tabs { display: grid; border-top: 0; border-bottom: 2px solid var(--bone); padding-bottom: 0; }
   body.desk .mobile-tabs { display: none; }
   body.desk .map-bottom { display: none; }
