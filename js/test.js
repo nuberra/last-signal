@@ -310,7 +310,7 @@ function bind() {
       const cfg = {
         _type: 'configuration', mode: 3, url: location.origin + '/api/owntracks', auth: true,
         username: b.name.toLowerCase(), password: pw, deviceId: 'handy', tid: b.name.slice(0, 2).toUpperCase(),
-        monitoring: 2, locatorDisplacement: 50, locatorInterval: 300,
+        monitoring: 2, locatorDisplacement: 50, locatorInterval: 300, downgrade: 0,
       };
       const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       const link = location.origin + '/ot.html#' + b64;
