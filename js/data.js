@@ -1,4 +1,4 @@
-/* LAST SIGNAL — Spieldaten Staffel 01, Stuttgart, 29.10. bis 01.11.2026.
+/* LAST SIGNAL — Spieldaten Staffel 01, Stuttgart, Fr 30.10. 09:00 bis So 01.11.2026 15:00.
    Koordinaten wie recherchiert uebernommen. */
 
 /* proof: 'photo' | 'video' | 'photo+video' | 'none' */
@@ -111,15 +111,17 @@ export const LIVE_LAYERS = [
 export const ALERT_RADIUS_M = 500;
 
 /* Spielzeitraum: fuer Funkstille-Alarm und "letzte Chance" der Aufgaben. */
-export const GAME_START = '2026-10-29T08:00:00+01:00';
-export const GAME_END = '2026-11-01T18:00:00+01:00';
+export const GAME_START = '2026-10-30T09:00:00+01:00';
+export const GAME_END = '2026-11-01T15:00:00+01:00';
 
 /* Jagdzeit pro Tag (Ortszeit Stuttgart): Signale der Gejagten werden nur von 09:00 bis
    22:00 freigegeben, im Takt von CONFIG.REVEAL_MIN. Ausserhalb gibt es keine Freigabe,
-   keinen Push und keine Funkstille; um 09:00 erscheint der neueste Punkt der Nacht. */
+   keinen Push und keine Funkstille; um 09:00 erscheint der neueste Punkt der Nacht.
+   Nach Spielende wird nichts mehr freigegeben. */
 export const HUNT_FROM_MIN = 9 * 60;
 export const HUNT_TO_MIN = 22 * 60;
 const berlinFmt = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /* Minuten seit Mitternacht in Stuttgart */
 export const localMin = (t) => { const [h, m] = berlinFmt.format(new Date(t)).split(':').map(Number); return h * 60 + m; };
-export const huntOpen = (t) => { const m = localMin(t); return m >= HUNT_FROM_MIN && m <= HUNT_TO_MIN; };
+/* Vor Spielbeginn offen (zum Testen), nach Spielende (So 15:00) nicht mehr. */
+export const huntOpen = (t) => { const m = localMin(t); return m >= HUNT_FROM_MIN && m <= HUNT_TO_MIN && +new Date(t) <= Date.parse(GAME_END); };

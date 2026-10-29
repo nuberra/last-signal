@@ -1640,7 +1640,7 @@ function buildExport() {
   const ll = (p) => p.lat.toFixed(5) + ', ' + p.lng.toFixed(5);
   const out = [];
   out.push(`LAST SIGNAL - LAGEBERICHT ${d(now)} ${timeHM(now)}`);
-  out.push('Kontext: City Hunt in Stuttgart, 29.10. bis 01.11.2026. 2 Gejagte (Bandits) erledigen 24 Pflichtaufgaben mit Fotobeweis und 3 Pflichttermine, 2 Jäger versuchen sie zu fangen (Berührung = Fang). Distanzen sind Luftlinie.');
+  out.push('Kontext: City Hunt in Stuttgart, Fr 30.10. 09:00 bis So 01.11.2026 15:00, jeden Tag Pause 22:00-09:00 (dann keine Signale). 2 Gejagte (Bandits) erledigen 24 Pflichtaufgaben mit Fotobeweis und 3 Pflichttermine, 2 Jäger versuchen sie zu fangen (Berührung = Fang). Distanzen sind Luftlinie.');
   out.push('');
   out.push('AKTUELLE STANDORTE');
   for (const id of BANDIT_IDS()) {
@@ -1809,7 +1809,8 @@ function nextOpenSlot(t) {
   const base = slotOf(t);
   if (openSlotCache.has(base)) return openSlotCache.get(base);
   let s = base + REVEAL_MS;
-  while (!huntOpen(s)) s += REVEAL_MS;
+  const end = Date.parse(GAME_END);
+  while (!huntOpen(s)) { s += REVEAL_MS; if (s > end) { s = Infinity; break; } }
   openSlotCache.set(base, s);
   return s;
 }

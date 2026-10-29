@@ -42,7 +42,7 @@ function renderSetup() {
     ${DEMO ? '<div class="demo-bar">Demo-Modus · nur dieses Gerät</div>' : ''}
     <div class="gate ls-anim-rise">
       <img class="mark" src="/icons/pin.svg" alt="">
-      <div class="label">Staffel 01 · Stuttgart · 29.10. bis 01.11.2026</div>
+      <div class="label">Staffel 01 · Stuttgart · 30.10. bis 01.11.2026</div>
       <h1 class="display d-xl" style="margin-top:16px">Last Signal</h1>
       <div class="display d-s" style="color:var(--orange);margin-top:8px">Bandits</div>
       <div class="field">

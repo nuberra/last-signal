@@ -44,13 +44,20 @@ export function openText(st) {
   return 'ZU';
 }
 
-/* Verbleibende Oeffnungsfenster bis Spielende, kompakt: "FR 09:00–18:00 · SA 09:00–18:00" */
+/* Verbleibende Oeffnungsfenster bis Spielende, kompakt: "FR 09:00–18:00 · SA 09:00–18:00".
+   Nur innerhalb der Jagdzeit 09:00–22:00; nachts spielt niemand. */
 export function windowsUntil(hours, now, end) {
   if (!hours) return null;
-  return intervals(hours, now, end).map(([s, e]) => {
-    const a = s < now ? now : s, b = e > end ? end : e;
-    return { a, b, min: (b - a) / 60000, text: DAYS[a.getDay()] + ' ' + hm(a) + '–' + hm(b) };
-  }).filter((w) => w.min > 0);
+  const out = [];
+  for (const [s, e] of intervals(hours, now, end)) {
+    const a0 = s < now ? now : s, b0 = e > end ? end : e;
+    for (let d = at(a0, '00:00'); d < b0; d = new Date(d.getTime() + 86400e3)) {
+      const da = at(d, '09:00'), db = at(d, '22:00');
+      const a = a0 > da ? a0 : da, b = b0 < db ? b0 : db;
+      if (b > a) out.push({ a, b, min: (b - a) / 60000, text: DAYS[a.getDay()] + ' ' + hm(a) + '–' + hm(b) });
+    }
+  }
+  return out;
 }
 
 /* ---------- Halte: wo blieben sie laenger stehen ---------- */
