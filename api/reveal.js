@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   let before = slot - ms;
   while (!huntOpen(before)) before -= ms;
   const out = {};
-  for (const b of CONFIG.BANDITS) {
+  for (const b of [...CONFIG.BANDITS, ...(CONFIG.TEST_TRACKER ? [CONFIG.TEST_TRACKER] : [])]) {
     const now = await latestUntil(b.id, slot);
     if (!now) { out[b.id] = 'kein Punkt'; continue; }
     if (new Date(now.created_at).getTime() <= before) { out[b.id] = 'nichts Neues'; continue; }

@@ -100,10 +100,10 @@ export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || (
 
 /* Fairness: Positionen der Gejagten werden im Takt freigegeben (siehe api/reveal.js).
    Sofort gepusht werden nur Signale beim Abhaken ('task'), "Jetzt senden" ('manual'),
-   Testsignale ('test') und der TEST-Kanal; die ersten drei nur in der Jagdzeit 09-22 Uhr. */
+   Testsignale ('test'), nur in der Jagdzeit 09-22 Uhr. Der TEST-Kanal laeuft wie die Gejagten. */
 export const REVEAL_MIN = CONFIG.REVEAL_MIN || 0;
 export const isImmediate = (playerId, source) =>
-  !REVEAL_MIN || (CONFIG.TEST_TRACKER && playerId === CONFIG.TEST_TRACKER.id) || (['task', 'manual', 'test'].includes(source) && huntOpen(Date.now()));
+  !REVEAL_MIN || (['task', 'manual', 'test'].includes(source) && huntOpen(Date.now()));
 
 /* Ein Push pro Signal, nie zwei:
    - ALARM, wenn der Gejagte neu in den 500-m-Umkreis eines Orts mit OFFENER Aufgabe kommt

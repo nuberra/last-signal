@@ -1797,11 +1797,11 @@ function renderExport() {
 /* ---- Fairness: Freigabe im Takt ----
    Fuer Gejagte wird zu jedem Taktpunkt (:00, :20, :40) der neueste Punkt davor sichtbar.
    Punkte aus 'task' (Aufgabe abgehakt), 'manual' (Jetzt senden) und 'test' sofort.
-   Der TEST-Kanal und Jaeger/Auto sind nicht betroffen. */
+   Der TEST-Kanal laeuft gleich wie die Gejagten; Jaeger/Auto sind nicht betroffen. */
 const REVEAL_MS = (CONFIG.REVEAL_MIN || 0) * 60000;
 const IMMEDIATE = new Set(['task', 'manual', 'test']);
 const slotOf = (t) => Math.floor(t / REVEAL_MS) * REVEAL_MS;
-const isGated = (id) => REVEAL_MS > 0 && CONFIG.BANDITS.some((b) => b.id === id);
+const isGated = (id) => REVEAL_MS > 0 && (CONFIG.BANDITS.some((b) => b.id === id) || (CONFIG.TEST_TRACKER && id === CONFIG.TEST_TRACKER.id));
 
 /* Naechster Taktpunkt nach t, der in der Jagdzeit (09:00-22:00) liegt */
 const openSlotCache = new Map();
