@@ -349,7 +349,13 @@ async function runDauertest(hours) {
   try { rows = await store.getLocations(new Date(since).toISOString()); } catch (e) { out.innerHTML = `<div class="test-out label bad">Fehler: ${esc(e.message || e)}</div>`; return; }
   const fmt = (t) => new Date(t).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase();
   const who = [...CONFIG.BANDITS, ...(CONFIG.TEST_TRACKER && rows.some((r) => r.player_id === CONFIG.TEST_TRACKER.id) ? [CONFIG.TEST_TRACKER] : [])];
-  out.innerHTML = who.map((b) => {
+  /* Vom Server abgelehnte OwnTracks-Anfragen (api/owntracks.js) */
+  const rejects = (await store.getItems().catch(() => [])).filter((i) => i.kind === 'ot-log' && new Date(i.created_at).getTime() >= since).reverse();
+  const rejectHtml = rejects.length
+    ? `<div class="dt-card"><div class="display d-s">OwnTracks abgelehnt</div><div class="label" style="padding:6px 0">Diese Handys erreichen den Server, werden aber abgewiesen. UserID und Grund:</div>`
+      + rejects.slice(0, 12).map((r) => `<div class="lage-row" style="grid-template-columns:1fr auto"><span class="value">${esc((r.data.user || '-').toUpperCase())} · ${esc(r.data.reason || '')}${r.data.type ? ' (' + esc(r.data.type) + ')' : ''}${r.data.error ? ' · ' + esc(r.data.error) : ''}</span><span class="label">${fmt(r.created_at)}</span></div>`).join('') + '</div>'
+    : `<div class="label" style="margin:8px 0">Keine abgelehnten OwnTracks-Anfragen. Steht bei jemandem "KEINE", erreicht sein OwnTracks den Server gar nicht: URL oder Modus (HTTP) prüfen.</div>`;
+  out.innerHTML = rejectHtml + who.map((b) => {
     const pts = rows.filter((r) => r.player_id === b.id && r.source !== 'test').sort((a, c) => a.created_at.localeCompare(c.created_at));
     if (!pts.length) return `<div class="dt-card"><div class="display d-s">${esc(b.name)}</div><div class="test-out label bad">Keine Signale in den letzten ${hours} H</div></div>`;
     const bySrc = {};
