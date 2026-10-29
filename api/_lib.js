@@ -5,7 +5,7 @@
 import webpush from 'web-push';
 import crypto from 'node:crypto';
 import { CONFIG } from '../js/config.js';
-import { POI_CATEGORIES, ALERT_RADIUS_M, GAME_START, GAME_END, huntOpen } from '../js/data.js';
+import { POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, GAME_START, GAME_END, huntOpen } from '../js/data.js';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || CONFIG.SUPABASE_URL).replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || CONFIG.SUPABASE_ANON_KEY;
@@ -105,9 +105,21 @@ export const REVEAL_MIN = CONFIG.REVEAL_MIN || 0;
 export const isImmediate = (playerId, source) =>
   !REVEAL_MIN || (['task', 'manual', 'test'].includes(source) && huntOpen(Date.now()));
 
+/* Alle Orte mit Alarm: feste Orte (500 m) und die OSM-Aufgaben-Orte, die die Jaeger-Seite in
+   hunter_items (kind 'osm-pois') ablegt, mit dem Umkreis ihrer Ebene. */
+export async function alarmPlaces() {
+  const fixed = POI_CATEGORIES.flatMap((c) => c.items.map((p) => ({ ...p, radius: ALERT_RADIUS_M })));
+  const [row] = await supa('hunter_items?select=data&kind=eq.osm-pois&order=created_at.desc&limit=1').catch(() => []);
+  const layers = Object.fromEntries(LIVE_LAYERS.filter((l) => l.alarm).map((l) => [l.id, l]));
+  const live = ((row && row.data && row.data.list) || []).flatMap(([lat, lng, name, cat]) => {
+    const l = layers[cat]; return l ? [{ name, lat, lng, tasks: l.tasks, radius: l.radius }] : [];
+  });
+  return [...fixed, ...live];
+}
+
 /* Ein Push pro Signal, nie zwei:
-   - ALARM, wenn der Gejagte neu in den 500-m-Umkreis eines Orts mit OFFENER Aufgabe kommt
-     (erledigte Orte zaehlen nicht). Bei OwnTracks hoechstens ein Alarm alle 10 Minuten.
+   - ALARM, wenn der Gejagte neu in den Umkreis eines Orts mit OFFENER Aufgabe kommt (feste Orte
+     500 m, OSM-Orte 50 bis 300 m; erledigte Orte zaehlen nicht). Bei OwnTracks hoechstens ein Alarm alle 10 Minuten.
    - sonst NEUES SIGNAL: aus der Web-App immer, aus OwnTracks nur nach 15 Minuten Pause. */
 export async function onSignal(playerId, source = 'web', pair = null) {
   if (!pair && !isImmediate(playerId, source)) return { pushed: null, waiting: 'naechster Takt' };
@@ -117,14 +129,12 @@ export async function onSignal(playerId, source = 'web', pair = null) {
   const [now, prev] = rows;
   const done = new Set((await supa('completions?select=task_id&done=eq.true').catch(() => [])).map((r) => r.task_id));
   const hits = [];
-  for (const c of POI_CATEGORIES) {
-    for (const poi of c.items) {
-      if (poi.tasks && poi.tasks.length && poi.tasks.every((t) => done.has(t))) continue;
-      const d = distanceM(now, poi);
-      if (d > ALERT_RADIUS_M) continue;
-      if (prev && distanceM(prev, poi) <= ALERT_RADIUS_M + 50) continue;
-      hits.push({ name: poi.name, d });
-    }
+  for (const poi of await alarmPlaces()) {
+    if (poi.tasks && poi.tasks.length && poi.tasks.every((t) => done.has(t))) continue;
+    const d = distanceM(now, poi);
+    if (d > poi.radius) continue;
+    if (prev && distanceM(prev, poi) <= poi.radius + 50) continue;
+    hits.push({ name: poi.name, d });
   }
   hits.sort((a, b) => a.d - b.d);
   const who = banditName(playerId);

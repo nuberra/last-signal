@@ -68,7 +68,7 @@ function supabaseStore() {
         await del('locations', (x) => x.gte('id', 0));
         await del('completions', (x) => x.neq('task_id', ''));
         await del('proofs', (x) => x.gte('id', 0));
-        await del('hunter_items', (x) => x.gte('id', 0));
+        await del('hunter_items', (x) => x.neq('kind', 'osm-pois'));
       } else {
         await del('locations', (x) => x.eq('source', 'test'));
         await del('hunter_items', (x) => x.in('kind', ['silence', 'alarm', 'ot-log']));
@@ -165,7 +165,7 @@ function demoStore() {
     async resetData(all) {
       const d = db();
       d.locations = all ? [] : d.locations.filter((l) => l.source !== 'test');
-      if (all) { d.completions = []; d.proofs = []; d.hunter_items = []; }
+      if (all) { d.completions = []; d.proofs = []; d.hunter_items = d.hunter_items.filter((i) => i.kind === 'osm-pois'); }
       save(d);
     },
     async addItem(it) {

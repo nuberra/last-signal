@@ -309,22 +309,29 @@ const mapColor = (id) => { const c = playerColor(id); return c.toUpperCase() ===
 
 const taskCode = (id) => id.replace(/^t/, '');
 const poiDone = (it) => it.tasks.length > 0 && it.tasks.every(isDone);
-/* Weitere Aufgaben-Orte aus OpenStreetMap (Ebenen x-...). Liegt ein fester Ort mit derselben
+/* Weitere Aufgaben-Orte aus OpenStreetMap (Ebenen mit alarm). Liegt ein fester Ort mit derselben
    Aufgabe naeher als 150 m, ist es derselbe und wird nicht doppelt gezaehlt. */
+let livePoisCache = null;
 function livePois() {
   const o = state.osm; if (!o) return [];
+  if (livePoisCache && livePoisCache.o === o) return livePoisCache.list;
   const fixed = allPois();
   const out = [];
   for (const l of LIVE_LAYERS) {
-    if (!l.id.startsWith('x-')) continue;
+    if (!l.alarm) continue;
     for (const [lat, lng, name] of o[l.id] || []) {
       if (fixed.some((f) => f.tasks.some((t) => l.tasks.includes(t)) && distanceM(f, { lat, lng }) < 150)) continue;
-      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true });
+      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true, radius: l.radius, dense: !!l.dense });
     }
   }
+  livePoisCache = { o, list: out };
   return out;
 }
-const openPois = () => [...allPois(), ...livePois()].filter((p) => !poiDone(p));
+/* Prognose, Hotspots, Lagebericht: feste Orte und die nicht zu dichten OSM-Orte */
+const openPois = () => [...allPois(), ...livePois().filter((p) => !p.dense)].filter((p) => !poiDone(p));
+/* Alarm: feste Orte (sichtbare Ebenen) und alle offenen OSM-Aufgaben-Orte, auch ausgeblendete */
+const alarmPois = () => [...visiblePois(), ...livePois().filter((p) => !poiDone(p))];
+const radiusOf = (p) => p.radius || ALERT_RADIUS_M;
 
 function sqIcon(size, fill, border, cls = '') {
   return L.divIcon({
@@ -472,6 +479,7 @@ async function loadLive(force) {
     state.osm = await loadOsm(force);
     state.osmStatus = 'ok';
     buildLive();
+    syncOsmPois(force);
     loadLines(force);
   } catch (e) {
     console.error(e);
@@ -481,6 +489,22 @@ async function loadLive(force) {
   }
   renderLayers();
   if (isSub('lage')) renderLage();
+}
+
+/* Der Server (Push-Alarm) kann OpenStreetMap nicht selbst abfragen. Darum legt die Jaeger-Seite
+   die Aufgaben-Orte als ein Eintrag (hunter_items, kind 'osm-pois') in Supabase ab. Erneuert,
+   wenn er fehlt, aelter als 3 Tage ist oder OSM neu geladen wurde. */
+async function syncOsmPois(force) {
+  if (!state.itemsLoaded) { state.osmSyncPending = true; return; }
+  const list = livePois().map((p) => [+p.lat.toFixed(5), +p.lng.toFixed(5), p.name, p.cat]);
+  if (!list.length) return;
+  const old = state.items.filter((i) => i.kind === 'osm-pois');
+  const cur = old[old.length - 1];
+  if (!force && cur && cur.data && Date.now() - cur.data.at < 3 * 86400e3 && (cur.data.list || []).length === list.length) return;
+  try {
+    await store.addItem({ kind: 'osm-pois', author: '', data: { at: Date.now(), list } });
+    for (const i of old) await store.deleteItem(i.id).catch(() => {});
+  } catch (e) { console.error('osm-pois', e); }
 }
 
 function buildLive() {
@@ -575,12 +599,13 @@ function renderLayers() {
   const o = state.osm;
   el.innerHTML = `
     <div class="lhead"><span class="label">Ebenen</span><button class="btn small quiet" id="l-close">Zu</button></div>
-    <div class="lsub label">Feste Orte · mit Alarm</div>
-    ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length))).join('')}
+    <div class="lsub label">Aufgaben-Orte · mit Alarm</div>
+    ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length), 'Alarm ' + ALERT_RADIUS_M + ' M')).join('')}
+    ${LIVE_LAYERS.filter((l) => l.alarm).map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'Alarm ' + l.radius + ' M, auch ausgeblendet · Karte ab Zoom ' + l.minZoom + ' · Aufgabe ' + l.tasks.map(taskCode).join('/'))).join('')}
     <div class="layer-row" data-showall="1"><input type="checkbox" class="check" ${prefs.showAll ? 'checked' : ''} tabindex="-1"><span class="name">Auch erledigte und geschlossene Orte<small>sonst ausgeblendet</small></span></div>
     <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M bei allen Orten<small>sonst nur, wenn ein Gejagter drin ist</small></span></div>
-    <div class="lsub label">OpenStreetMap · ohne Alarm${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''}</div>
-    ${LIVE_LAYERS.map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom + (l.tasks.length ? ' · Aufgabe ' + l.tasks.map(taskCode).join('/') : ''))).join('')}
+    <div class="lsub label">OpenStreetMap${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''} · ohne Alarm</div>
+    ${LIVE_LAYERS.filter((l) => !l.alarm).map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom)).join('')}
     <div class="lsub label">Jäger</div>
     ${row('jaeger', 'Anderer Jäger', String(hunterIds().length))}
     ${row('notizen', 'Notizen mit Ort', pad2(notes().filter((n) => n.lat != null).length))}
@@ -814,10 +839,12 @@ function evaluateProximity(silent) {
   const nowInside = new Set();
   const fresh = [];
   for (const id of BANDIT_IDS()) {
-    for (const { poi, d } of nearList(id)) {
+    for (const { poi, d } of nearList(id, alarmPois())) {
       const key = id + '|' + poi.key;
       const was = state.inside.has(key);
-      if (d <= ALERT_RADIUS_M || (was && d <= ALERT_RADIUS_M + 50)) {
+      const r = radiusOf(poi);
+      if (d > ALERT_RADIUS_M + 50) break;
+      if (d <= r || (was && d <= r + 50)) {
         nowInside.add(key);
         if (!was) fresh.push({ id, poi, d });
       }
@@ -829,7 +856,7 @@ function evaluateProximity(silent) {
   if (silent || !fresh.length) return;
   for (const f of fresh) {
     const text = `${playerName(state.players, f.id)} ist ${Math.round(f.d)} M von ${f.poi.name} entfernt`;
-    systemNotify('ALARM ' + ALERT_RADIUS_M + ' M', text);
+    systemNotify('ALARM', text);
   }
   /* Ein Alarmkasten pro Ereignis, nächster Ort zuerst; aeltere Alarme werden ersetzt. */
   fresh.sort((a, b) => a.d - b.d);
@@ -848,7 +875,7 @@ function renderAlarms() {
   const el = $('#alarms'); if (!el) return;
   el.innerHTML = state.alarms.map((a, i) => `
     <div class="alarm ${a.fresh ? 'fresh' : ''}" data-alarm="${i}" style="--alarm-spur:${playerColor(a.id)}">
-      <div class="label">Alarm ${timeHM(a.at)} · ${ALERT_RADIUS_M} M · Tippen schliesst</div>
+      <div class="label">Alarm ${timeHM(a.at)} · Tippen schliesst</div>
       <div class="alarm-text">${esc(a.lines[0])}</div>
       ${a.lines.slice(1).map((l) => `<div class="alarm-more">${esc(l)}</div>`).join('')}
     </div>`).join('');
@@ -880,7 +907,7 @@ function renderCards() {
       <div class="section-head"><h2 class="display d-s">Bandits</h2><span class="label">${seen.length ? 'Letztes Signal ' + timeHM(seen.map((l) => l.created_at).sort().pop()) : 'Noch kein Signal'}</span></div>
       ${cardsHtml(ids.filter(onMap))}
       <div class="section">
-        <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Umkreis ${ALERT_RADIUS_M} M</span></div>
+        <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Feste Orte ${ALERT_RADIUS_M} M · weitere 50 bis 300 M</span></div>
         ${state.alarmLog.length ? state.alarmLog.map((a) => `<div class="log-row" data-poi="${esc(a.poi.key)}"><span class="label">${timeHM(a.at)}</span><span class="value" style="font-size:13px">${esc(a.text.toUpperCase())}</span></div>`).join('') : '<div class="label" style="padding:16px 0">Noch kein Alarm</div>'}
       </div>
 `;
@@ -1801,7 +1828,7 @@ function buildExport() {
   out.push('');
   out.push('POI-DISTANZEN (Luftlinie)');
   for (const id of BANDIT_IDS()) {
-    const list = nearList(id, allPois());
+    const list = nearList(id, openPois()).slice(0, 12);
     if (!list.length) continue;
     out.push(`- ${playerName(state.players, id)}: ` + list.map((n) => `${n.poi.name} ${formatDistance(n.d).toLowerCase()}`).join('; '));
   }
@@ -1988,6 +2015,8 @@ async function loadAll(initial) {
     const since = new Date(Date.now() - 5 * 24 * 3600e3).toISOString();
     const [players, locs, completions, proofs, items] = await Promise.all([store.getPlayers(), store.getLocations(since), store.getCompletions(), store.getProofs(), store.getItems().catch(() => [])]);
     state.items = items;
+    state.itemsLoaded = true;
+    if (state.osmSyncPending) { state.osmSyncPending = false; syncOsmPois(false); }
     state.players = players;
     state.locs = {}; state.raw = {};
     locs.forEach(addLoc);
