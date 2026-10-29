@@ -143,6 +143,14 @@ img, svg, video { display: block; max-width: 100%; }
 
 /* ---- Jaeger: App-Rahmen ---- */
 .app { display: flex; flex-direction: column; height: 100dvh; }
+/* Jaeger-Seite: Seite selbst scrollt nie (kein Wegrutschen von Kopf- und Reiterleiste,
+   kein Gummiband-Effekt auf dem iPhone). Gescrollt wird nur innerhalb der Ansichten. */
+html:has(body.hunter) { overflow: hidden; height: 100%; }
+body.hunter { position: fixed; inset: 0; overflow: hidden; min-height: 0; overscroll-behavior: none; }
+body.hunter #root { height: 100%; overflow-y: auto; }
+body.hunter .app { height: 100%; overflow: hidden; }
+body.hunter .app-head, body.hunter .mobile-tabs, body.hunter .demo-bar { flex-shrink: 0; }
+body.hunter .view.scroll, body.hunter .sheet { overscroll-behavior: contain; }
 .app-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: calc(8px + var(--safe-top)) 16px 8px; border-bottom: 2px solid var(--bone); }
 .app-head .brand { font-size: 24px; }
 .tabs { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 2px solid var(--bone); padding-bottom: var(--safe-bottom); background: var(--ink); }
