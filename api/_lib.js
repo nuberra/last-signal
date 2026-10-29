@@ -5,7 +5,7 @@
 import webpush from 'web-push';
 import crypto from 'node:crypto';
 import { CONFIG } from '../js/config.js';
-import { POI_CATEGORIES, ALERT_RADIUS_M, GAME_START, GAME_END } from '../js/data.js';
+import { POI_CATEGORIES, ALERT_RADIUS_M, GAME_START, GAME_END, huntOpen } from '../js/data.js';
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || CONFIG.SUPABASE_URL).replace(/\/$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || CONFIG.SUPABASE_ANON_KEY;
@@ -100,10 +100,10 @@ export const banditName = (id) => ((CONFIG.BANDITS.find((b) => b.id === id) || (
 
 /* Fairness: Positionen der Gejagten werden im Takt freigegeben (siehe api/reveal.js).
    Sofort gepusht werden nur Signale beim Abhaken ('task'), "Jetzt senden" ('manual'),
-   Testsignale ('test') und der TEST-Kanal. */
+   Testsignale ('test') und der TEST-Kanal; die ersten drei nur in der Jagdzeit 09-22 Uhr. */
 export const REVEAL_MIN = CONFIG.REVEAL_MIN || 0;
 export const isImmediate = (playerId, source) =>
-  !REVEAL_MIN || ['task', 'manual', 'test'].includes(source) || (CONFIG.TEST_TRACKER && playerId === CONFIG.TEST_TRACKER.id);
+  !REVEAL_MIN || (CONFIG.TEST_TRACKER && playerId === CONFIG.TEST_TRACKER.id) || (['task', 'manual', 'test'].includes(source) && huntOpen(Date.now()));
 
 /* Ein Push pro Signal, nie zwei:
    - ALARM, wenn der Gejagte neu in den 500-m-Umkreis eines Orts mit OFFENER Aufgabe kommt

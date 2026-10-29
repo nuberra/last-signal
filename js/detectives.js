@@ -1,7 +1,7 @@
 /* LAST SIGNAL — Ansicht der Jäger. Karte, Aufgaben, Export. */
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
-import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, GAME_START, GAME_END } from './data.js';
+import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN } from './data.js';
 import { loadOsm, cachedOsm, loadRoutes } from './osm.js';
 import { openState, openText, windowsUntil, stays, walkMin, driveMin, transitMin, guessLines, hm, DAYS } from './hunt.js';
 import {
@@ -826,7 +826,7 @@ function cardsHtml(ids) {
     const goals = prognosis(id);
     return `<div class="pcard" style="--pc:${color}">
       <div class="row" data-player="${id}"><span class="display d-s">${esc(playerName(state.players, id))}</span><span class="label ${ageMin(l) > 20 ? 'age-old' : ''}">${agoText(l.created_at)}${bt ? ' · ' + esc(bt) : ''}</span></div>
-      ${silent(latestRaw(id)) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(ageMin(latestRaw(id)))} MIN</div>` : ''}
+      ${silent(latestRaw(id)) ? `<div class="silence">FUNKSTILLE SEIT ${Math.round(silenceMin(latestRaw(id)))} MIN</div>` : ''}
       ${isGated(id) ? `<div class="label" style="margin-top:4px">Nächstes Signal ${timeHM(new Date(nextReveal()).toISOString())}</div>` : ''}
       ${lineHtml(id)}
       <div class="goals">${goals.map((x) => `<div class="goal" data-goal="${x.p.lat},${x.p.lng}">
@@ -1364,11 +1364,13 @@ function checkSilence() {
     const l = latestRaw(id);
     if (!silent(l) || silenceWarned[id] === l.created_at) continue;
     silenceWarned[id] = l.created_at;
-    toast('Funkstille ' + playerName(state.players, id), 'Seit ' + Math.round(ageMin(l)) + ' Minuten kein Signal', 'bandit');
+    toast('Funkstille ' + playerName(state.players, id), 'Seit ' + Math.round(silenceMin(l)) + ' Minuten kein Signal', 'bandit');
     if (state.soundOn) beep('alarm');
   }
 }
-const silent = (l) => l && ageMin(l) >= SILENCE_MIN && Date.now() >= new Date(GAME_START).getTime() && Date.now() <= new Date(GAME_END).getTime();
+/* Funkstille nur in Spiel- und Jagdzeit, fruehestens ab 09:00 gezaehlt */
+const silenceMin = (l) => Math.min(ageMin(l), localMin(Date.now()) - HUNT_FROM_MIN);
+const silent = (l) => l && huntOpen(Date.now()) && silenceMin(l) >= SILENCE_MIN && Date.now() >= new Date(GAME_START).getTime() && Date.now() <= new Date(GAME_END).getTime();
 const lastBattery = (id) => { const a = state.locs[id] || []; for (let i = a.length - 1; i >= 0; i--) if (a[i].battery != null) return a[i]; return null; };
 function batteryText(id) {
   const b = lastBattery(id); if (!b) return '';
@@ -1801,16 +1803,30 @@ const IMMEDIATE = new Set(['task', 'manual', 'test']);
 const slotOf = (t) => Math.floor(t / REVEAL_MS) * REVEAL_MS;
 const isGated = (id) => REVEAL_MS > 0 && CONFIG.BANDITS.some((b) => b.id === id);
 
+/* Naechster Taktpunkt nach t, der in der Jagdzeit (09:00-22:00) liegt */
+const openSlotCache = new Map();
+function nextOpenSlot(t) {
+  const base = slotOf(t);
+  if (openSlotCache.has(base)) return openSlotCache.get(base);
+  let s = base + REVEAL_MS;
+  while (!huntOpen(s)) s += REVEAL_MS;
+  openSlotCache.set(base, s);
+  return s;
+}
+
+/* Jeder Punkt bekommt seinen Freigabezeitpunkt. Sichtbar ist pro Taktpunkt nur der neueste
+   Punkt davor; Sofort-Punkte nur in der Jagdzeit sofort, sonst wie alle anderen. */
 function revealedPts(raw, now = Date.now()) {
   const out = [];
   let cand = null;
   for (const p of raw) {
     const t = new Date(p.created_at).getTime();
-    if (cand && slotOf(t) > slotOf(cand.t)) { out.push(cand.p); cand = null; }
-    if (IMMEDIATE.has(p.source)) out.push(p);
-    else cand = { p, t };
+    if (IMMEDIATE.has(p.source) && huntOpen(t)) { if (t <= now) out.push(p); continue; }
+    const r = nextOpenSlot(t);
+    if (cand && r > cand.r) { if (cand.r <= now) out.push(cand.p); }
+    cand = { p, r };
   }
-  if (cand && slotOf(cand.t) + REVEAL_MS <= now) out.push(cand.p);
+  if (cand && cand.r <= now) out.push(cand.p);
   return out.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
@@ -1827,7 +1843,7 @@ function rebuildVisible(ids = Object.keys(state.raw)) {
   return changed;
 }
 
-const nextReveal = () => slotOf(Date.now()) + REVEAL_MS;
+const nextReveal = () => nextOpenSlot(Date.now());
 
 function addLoc(row) {
   const arr = state.raw[row.player_id] ||= [];
