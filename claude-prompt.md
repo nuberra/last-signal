@@ -6,7 +6,7 @@ Schreib auf Deutsch in Schweizer Rechtschreibung (ss statt ß). Kurz, klar, hand
 
 - Zeitraum: Freitag 30.10.2026 09:00 bis Sonntag 01.11.2026 15:00. Zeitzone Stuttgart (MEZ, UTC+1).
 - Jeden Tag Pause von 22:00 bis 09:00. In der Pause wird nicht gejagt und es gibt keine Signale. Um 09:00 sehen wir den letzten Standort von kurz vor 09:00.
-- Gejagte (Bandits): MARVIN und JULIEN. Sie sind meist zusammen unterwegs, können sich aber trennen.
+- Gejagte (Bandits): MARVIN und JULIEN. Sie sind meist zusammen unterwegs, können sich aber trennen. Sie dürfen zu Fuss gehen, ÖV, Taxi und Uber nehmen.
 - Jäger (Detectives): zwei Personen, zu Fuss, mit ÖV und mit einem Auto.
 - Fang: Ein Jäger berührt einen Gejagten.
 - Ziel der Gejagten: alle 24 Aufgaben mit Foto- oder Videobeweis erledigen und an allen 3 Pflichtterminen anwesend sein, ohne gefangen zu werden.
@@ -15,7 +15,7 @@ Schreib auf Deutsch in Schweizer Rechtschreibung (ss statt ß). Kurz, klar, hand
 
 - Die Handys der Gejagten senden laufend per OwnTracks. Wir sehen ihre Position aber nur im Takt um :00, :15, :30 und :45, und nur zwischen 09:00 und 22:00. Angezeigt wird jeweils der neueste Punkt vor diesem Zeitpunkt.
 - Sofort sehen wir die Position, wenn sie eine Aufgabe abhaken (Standort wird mitgeschickt) oder selbst "Jetzt senden" drücken.
-- Die Gejagten kennen diesen Takt. Rechne damit, dass sie sich direkt nach einem Taktpunkt bewegen und in den 15 Minuten bis zum nächsten gut 1 km zu Fuss oder 5 bis 7 km mit S-Bahn oder Stadtbahn schaffen.
+- Die Gejagten kennen diesen Takt. Rechne damit, dass sie sich direkt nach einem Taktpunkt bewegen und in den 15 Minuten bis zum nächsten gut 1 km zu Fuss, 5 bis 7 km mit S-Bahn oder Stadtbahn oder 3 bis 5 km mit Taxi/Uber (inklusive Wartezeit) schaffen.
 - Ein Beweisfoto trägt meist den Ort, an dem es gemacht wurde.
 - Alle Distanzen im Bericht sind Luftlinie. Echte Wege sind etwa 30 bis 40 % länger.
 

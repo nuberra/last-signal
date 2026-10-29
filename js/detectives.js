@@ -3,7 +3,7 @@ import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
 import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, ALERT_RADIUS_CITY_M, alarmRadius, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN } from './data.js';
 import { loadOsm, cachedOsm, loadRoutes } from './osm.js';
-import { openState, openText, windowsUntil, stays, walkMin, driveMin, transitMin, guessLines, hm, DAYS } from './hunt.js';
+import { openState, openText, windowsUntil, stays, walkMin, driveMin, banditMin, reachM, guessLines, hm, DAYS } from './hunt.js';
 import {
   $, esc, pad2, formatCoordinate, distanceM, formatDistance, timeHM, agoText, toast, beep, unlockAudio,
   registerSW, statusText, playerName, playerColor, pushSupported, enablePush, pushActive,
@@ -321,7 +321,7 @@ function livePois() {
     if (!l.alarm) continue;
     for (const [lat, lng, name] of o[l.id] || []) {
       if (fixed.some((f) => f.tasks.some((t) => l.tasks.includes(t)) && distanceM(f, { lat, lng }) < 150)) continue;
-      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true, radius: alarmRadius({ lat, lng }, l), dense: !!l.dense });
+      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true, radius: alarmRadius({ lat, lng }, l), dense: !!l.dense, hours: l.hours });
     }
   }
   livePoisCache = { o, list: out };
@@ -612,7 +612,7 @@ function renderLayers() {
     ${row('zeichnungen', 'Zeichnungen', pad2(drawings().length))}
     ${row('halte', 'Halte ab 10 min', '')}
     ${row('fotos', 'Beweisfotos', pad2(state.proofs.filter((p) => p.lat != null).length), 'Ort aus Foto oder Handy')}
-    <div class="layer-row" data-reach="1"><input type="checkbox" class="check" ${prefs.reach ? 'checked' : ''} tabindex="-1"><span class="name">Reichweite seit Signal<small>${REACH_M_PER_MIN} M pro Minute</small></span></div>
+    <div class="layer-row" data-reach="1"><input type="checkbox" class="check" ${prefs.reach ? 'checked' : ''} tabindex="-1"><span class="name">Reichweite seit Signal<small>zu Fuss, ÖV, Taxi oder Uber</small></span></div>
     <div style="padding:12px 16px">
       <div class="label" style="margin-bottom:8px">Route</div>
       <div class="seg">${[['1h', '1 H'], ['6h', '6 H'], ['all', 'Alles'], ['none', 'Aus']].map(([k, t]) => `<button class="btn ${prefs.route === k ? 'on' : ''}" data-route="${k}">${t}</button>`).join('')}</div>
@@ -642,7 +642,6 @@ function routeSince() {
 /* ---- Gejagte ---- */
 
 /* Annahme fuer die Reichweite: OEPNV mit Umsteigen und Warten im Schnitt ~12 km/h. */
-const REACH_M_PER_MIN = 200;
 const ageMin = (l) => (Date.now() - new Date(l.created_at).getTime()) / 60000;
 
 function motion(id) {
@@ -700,7 +699,7 @@ function drawPlayers() {
     const l = shownLatest(id);
     if (!l) { if (pl.marker) { map.removeLayer(pl.marker); pl.marker = null; } map.removeLayer(pl.reach); map.removeLayer(pl.acc); continue; }
     const age = state.replayT ? 0 : ageMin(l);
-    const reachR = Math.min(age * REACH_M_PER_MIN, 10000);
+    const reachR = reachM(age);
     if (prefs.reach && age >= 2) { pl.reach.setLatLng([l.lat, l.lng]).setRadius(reachR); if (!map.hasLayer(pl.reach)) pl.reach.addTo(map); }
     else map.removeLayer(pl.reach);
     if (l.accuracy && l.accuracy > 10) { pl.acc.setLatLng([l.lat, l.lng]).setRadius(l.accuracy); if (!map.hasLayer(pl.acc)) pl.acc.addTo(map); }
@@ -943,6 +942,7 @@ function cardsHtml(ids) {
         <span class="num goal-pct">${x.pct}%</span>
         <div><div class="value">${esc(((x.p.code || x.p.tasks.map(taskCode).join('/')) + ' ' + x.p.name).toUpperCase())}</div>
         ${raceHtml(id, x.p)}</div></div>`).join('')}</div>
+      ${goals.anywhere && goals.anywhere.pct >= 5 ? `<div class="label" style="margin-top:6px">${goals.anywhere.pct}% eher Aufgabe ohne festen Ort (${goals.anywhere.tasks.map((x) => pad2(x.n)).join(', ')})</div>` : ''}
       <div class="btn-row card-btns"><button class="btn small" data-compass="${id}">Kompass</button><button class="btn small quiet" data-player="${id}">Auf Karte</button></div>
     </div>`;
   }).join('');
@@ -996,7 +996,7 @@ function renderLage() {
       ${me ? line('Zu Fuss', `ca. ${walkMin(distanceM(me, l))} MIN · ${formatDistance(distanceM(me, l))}`, routeLink(me, l, 'walking')) : ''}
       ${st ? line('Haltestelle', `${esc(st.s[2].toUpperCase())} ${st.s[3]} · ${formatDistance(st.d)}`) : ''}
       ${mo ? line('Bewegung', `${mo.dir} · ${mo.kmh.toFixed(1)} KM/H`) : ''}
-      ${age >= 2 ? line('Reichweite', `bis ca. ${formatDistance(Math.min(age * REACH_M_PER_MIN, 10000))}`) : ''}
+      ${age >= 2 ? line('Reichweite', `bis ca. ${formatDistance(reachM(age))}`) : ''}
       ${batteryText(id) ? line('Akku', batteryText(id)) : ''}
       ${lineHtml(id)}
       <button class="btn small" style="margin-top:8px" data-compass="${id}">Kompass</button>
@@ -1319,44 +1319,88 @@ function bearingDeg(a, b) {
   return (Math.atan2(y, x) / rad + 360) % 360;
 }
 
-/* Punkte pro offenem Ort: Naehe (je naeher, desto wahrscheinlicher), Bewegungsrichtung
-   (liegt der Ort voraus?) und anstehende Pflichttermine. Pro Aufgabe zaehlt nur der beste Ort. */
+/* Prognose: Punkte pro offenem Aufgaben-Ort, danach in Prozent umgerechnet.
+   - Reisezeit (zu Fuss, OEV, Taxi/Uber; das Schnellste) statt Luftlinie
+   - an der vermuteten S-/U-Bahn-Linie: Reisezeit bis zum Halt plus Fussweg, Bonus
+   - Bewegungsrichtung, Oeffnungszeiten, Pflichttermine
+   - Gruppen: weitere offene Aufgaben-Orte in 800 m machen einen Ort attraktiver
+   - Zeitdruck: wenig verbleibende Oeffnungszeit bis Spielende (z.B. Mall vor dem Feiertag)
+   - kuerzlich vorbei, ohne abzuhaken: abgewertet
+   Dazu ein Anteil "ohne festen Ort" fuer Aufgaben, die ueberall gehen. Pro Aufgabe zaehlt
+   nur der beste Ort. Ergebnis: Array der 3 besten Orte, .anywhere = { pct, tasks }. */
+const CLUSTER_M = 800;
 function prognosis(id) {
   const l = latest(id); if (!l) return [];
   const mo = motion(id);
   const now = Date.now();
+  const end = new Date(GAME_END);
+  const cands = openPois();
+  const line = lineGuesses(id)[0];
+  const lineFresh = line && ageMin(l) <= 45;
+  const recent = (state.locs[id] || []).filter((p) => now - new Date(p.created_at).getTime() <= 60 * 60000);
   const best = {};
-  for (const p of openPois()) {
+  for (const p of cands) {
     const d = distanceM(l, p);
-    let score = Math.exp(-d / 2500);
-    const why = [formatDistance(d)];
+    let t = banditMin(d);
+    const why = [formatDistance(d) + ' · ca. ' + t + "'"];
+    let score;
+    /* an ihrer Linie: Zeit bis zum Halt (ab Signal) plus Fussweg vom Halt */
+    if (lineFresh) {
+      let bl = null;
+      for (const s of line.next) {
+        const dw = distanceM(s, p); if (dw > 700) continue;
+        const tl = Math.max(0, (s.eta - new Date(l.created_at)) / 60000) + walkMin(dw);
+        if (!bl || tl < bl.t) bl = { t: Math.round(tl), s };
+      }
+      if (bl) { t = Math.min(t, bl.t); why.push('an ' + line.ref + ' ' + bl.s.name); }
+    }
+    score = Math.exp(-t / 25);
+    if (lineFresh && why.some((w) => w.startsWith('an ' + line.ref))) score *= 1.8;
     if (mo && d > 150) {
       const diff = Math.abs(((bearingDeg(l, p) - bearingDeg(mo.from, mo.to)) + 540) % 360 - 180);
-      const f = 0.6 + 0.8 * Math.max(0, Math.cos(diff * Math.PI / 180));
-      score *= f;
+      score *= 0.7 + 0.6 * Math.max(0, Math.cos(diff * Math.PI / 180));
       if (diff < 45) why.push('in Bewegungsrichtung');
     }
     const st = poiOpen(p);
     if (!st.always && !st.open) {
       const wait = st.next ? (st.next - now) / 60000 : Infinity;
-      if (wait > 60) { score *= 0.15; why.push(st.next ? 'zu bis ' + DAYS[st.next.getDay()] + ' ' + hm(st.next) : 'zu'); }
+      if (wait > Math.max(60, t)) { score *= 0.15; why.push(st.next ? 'zu bis ' + DAYS[st.next.getDay()] + ' ' + hm(st.next) : 'zu'); }
       else why.push('öffnet ' + hm(st.next));
-    } else if (st.open && st.until && (st.until - now) / 60000 < 45) { score *= 0.6; why.push('schliesst ' + hm(st.until)); }
+    } else if (st.open && st.until && (st.until - now) / 60000 < t + 20) { score *= 0.4; why.push('schliesst ' + hm(st.until)); }
+    /* Zeitdruck: verbleibende Oeffnungszeit (09-22 Uhr) bis Spielende */
+    if (p.hours) {
+      const left = (windowsUntil(p.hours, new Date(now), end) || []).reduce((s, w) => s + w.min, 0);
+      if (left <= 0) continue;
+      if (left < 600) { score *= 1 + 1.5 * (1 - left / 600); why.push('nur noch ' + Math.round(left / 60) + ' h offen'); }
+    }
     const appt = APPOINTMENTS.find((a) => p.tasks.includes(a.id));
     if (appt) {
       const toStart = (new Date(appt.start).getTime() - now) / 60000;
-      const ended = new Date(appt.end).getTime() < now;
-      if (ended) continue;
+      if (new Date(appt.end).getTime() < now) continue;
       if (toStart <= 0) { score *= 4; why.push('Termin läuft'); }
       else if (toStart < 180) { score *= 1 + 3 * (1 - toStart / 180); why.push('Termin in ' + Math.round(toStart) + ' min'); }
       else score *= 0.3;
+    } else {
+      /* Gruppe: andere offene Aufgaben in der Naehe */
+      const near = new Set();
+      for (const q of cands) if (!q.tasks.some((x) => p.tasks.includes(x)) && !q.tasks.some((x) => x.startsWith('a')) && distanceM(p, q) <= CLUSTER_M) q.tasks.forEach((x) => near.add(x));
+      if (near.size) { score *= Math.min(2, 1 + 0.25 * near.size); why.push('+' + near.size + ' Aufgabe' + (near.size > 1 ? 'n' : '') + ' in der Nähe'); }
+      /* kuerzlich vorbei und nicht abgehakt */
+      const r = Math.max(150, radiusOf(p));
+      if (d > r && recent.some((q) => distanceM(q, p) <= r)) { score *= 0.4; why.push('kürzlich vorbei'); }
     }
     const key = p.tasks.join(',');
-    if (!best[key] || best[key].score < score) best[key] = { p, d, score, why };
+    if (!best[key] || best[key].score < score) best[key] = { p, d, t, score, why };
   }
   const list = Object.values(best).sort((a, b) => b.score - a.score);
-  const total = list.reduce((s, x) => s + x.score, 0) || 1;
-  return list.slice(0, 3).map((x) => ({ ...x, pct: Math.round((x.score / total) * 100) }));
+  /* Aufgaben ohne festen Ort (oder nur an sehr vielen Orten: Café, Gym, Spielplatz) */
+  const fixedTasks = new Set([...allPois(), ...livePois().filter((p) => !p.dense)].flatMap((p) => p.tasks));
+  const anyTasks = TASKS.filter((x) => !isDone(x.id) && !fixedTasks.has(x.id));
+  const anyScore = 0.12 * anyTasks.length;
+  const total = list.reduce((s, x) => s + x.score, 0) + anyScore || 1;
+  const out = list.slice(0, 3).map((x) => ({ ...x, pct: Math.round((x.score / total) * 100) }));
+  out.anywhere = { pct: Math.round((anyScore / total) * 100), tasks: anyTasks };
+  return out;
 }
 
 /* ===================== Pflichttermine pruefen ===================== */
@@ -1436,7 +1480,7 @@ function ourEta(to) {
 
 function raceHtml(id, to) {
   const l = latest(id); if (!l) return '';
-  const them = transitMin(distanceM(l, to)) - Math.round(ageMin(l));   // seit dem Signal schon unterwegs
+  const them = banditMin(distanceM(l, to)) - Math.round(ageMin(l));   // seit dem Signal schon unterwegs (zu Fuss, OEV, Taxi)
   const us = ourEta(to);
   const sie = them > 0 ? `SIE ca. ${them}'` : 'SIE KÖNNTEN SCHON DORT SEIN';
   if (!us) return `<div class="race">${sie} · für eure Zeit "Ich" oder Auto setzen</div>`;
@@ -1849,10 +1893,11 @@ function buildExport() {
     out.push(`- ${p.name}: ${openText(openState(p.hours)).toLowerCase()}; ${w.length ? w.map((x) => x.text).join(', ') : 'bis Spielende zu'}`);
   }
   out.push('');
-  out.push('PROGNOSE DER APP (Nähe, Richtung, Termine)');
+  out.push('PROGNOSE DER APP (Reisezeit zu Fuss/ÖV/Taxi, Linie, Richtung, Gruppen, Zeitdruck, Termine)');
   for (const id of BANDIT_IDS()) {
     const pr = prognosis(id);
-    if (pr.length) out.push(`- ${playerName(state.players, id)}: ` + pr.map((x) => `${x.p.name} ${x.pct}% (${x.why.join(', ')})`).join('; '));
+    if (pr.length) out.push(`- ${playerName(state.players, id)}: ` + pr.map((x) => `${x.p.name} ${x.pct}% (${x.why.join(', ')})`).join('; ')
+      + (pr.anywhere && pr.anywhere.tasks.length ? `; ohne festen Ort ${pr.anywhere.pct}% (Aufgaben ${pr.anywhere.tasks.map((x) => pad2(x.n)).join(', ')})` : ''));
   }
   out.push('');
   out.push('PFLICHTTERMINE ANWESENHEIT');

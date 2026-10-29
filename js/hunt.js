@@ -89,6 +89,12 @@ export const walkMin = (d) => Math.max(1, Math.round((d * 1.3) / 80));          
 export const driveMin = (d) => Math.max(2, Math.round(3 + (d * 1.4) / 370));          // ~22 km/h + Parken
 /* Gejagte: kurze Wege zu Fuss, sonst OEPNV mit Zugang und Warten (~6 min) und ~25 km/h. */
 export const transitMin = (d) => (d < 900 ? walkMin(d) : Math.round(6 + (d * 1.35) / 420));
+/* Taxi oder Uber: ~5 min bis der Wagen da ist, dann ~27 km/h mit Umwegfaktor 1.4 */
+export const taxiMin = (d) => Math.round(5 + (d * 1.4) / 450);
+/* Gejagte duerfen zu Fuss, OEV, Taxi und Uber: das Schnellste zaehlt */
+export const banditMin = (d) => Math.min(walkMin(d), transitMin(d), taxiMin(d));
+/* Wie weit (Luftlinie) koennen sie in min Minuten gekommen sein? Umkehrung von banditMin. */
+export const reachM = (min) => Math.min(10000, Math.max((min * 80) / 1.3, ((min - 6) * 420) / 1.35, ((min - 5) * 450) / 1.4));
 
 /* ---------- Linie erraten ---------- */
 
