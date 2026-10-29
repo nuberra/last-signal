@@ -102,6 +102,13 @@ export const POI_CATEGORIES = [
 export const BBOX = [48.690, 9.030, 48.870, 9.320];
 export const LIVE_LAYERS = [
   { id: 'oepnv', label: 'S-Bahn / Stadtbahn', tag: 'S/U', minZoom: 12, tasks: [] },
+  /* x-...: alle weiteren Orte fuer eine Aufgabe. Zaehlen fuer Prognose und Lagebericht,
+     loesen aber keinen Alarm aus (nur die festen Orte oben). */
+  { id: 'x-casino', label: 'Casinos und Spielhallen', tag: 'SLOT', minZoom: 12, tasks: ['t15'] },
+  { id: 'x-mcd', label: "Alle McDonald's", tag: 'MCD', minZoom: 12, tasks: ['t16'] },
+  { id: 'x-mall', label: 'Alle Einkaufszentren', tag: 'MALL', minZoom: 12, tasks: ['t24'] },
+  { id: 'x-stadion', label: 'Alle Stadien', tag: 'STADION', minZoom: 12, tasks: ['t05'] },
+  { id: 'x-lego', label: 'Alle LEGO-Läden', tag: 'LEGO', minZoom: 12, tasks: ['t23'] },
   { id: 'gym', label: 'Gyms', tag: 'GYM', minZoom: 13, tasks: ['t19'] },
   { id: 'spielplatz', label: 'Spielplätze', tag: 'SPIEL', minZoom: 14, tasks: ['t20'] },
   { id: 'cafe', label: 'Cafés', tag: 'CAFE', minZoom: 15, tasks: ['t17', 't18'] },

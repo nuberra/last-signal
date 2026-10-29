@@ -1,8 +1,9 @@
 /* Live-Ebenen aus OpenStreetMap ueber die Overpass-API: Haltestellen, Gyms,
-   Spielplaetze, Cafes, Apotheken. Einmal laden, 7 Tage im Browser zwischenspeichern. */
+   Spielplaetze, Cafes, Apotheken und alle weiteren Orte fuer Aufgaben (Casinos und
+   Spielhallen, McDonald's, Einkaufszentren, Stadien, LEGO). Einmal laden, 7 Tage im Browser zwischenspeichern. */
 import { BBOX } from './data.js';
 
-const CACHE_KEY = 'ls-osm-v1';
+const CACHE_KEY = 'ls-osm-v2';
 const TTL = 7 * 24 * 3600e3;
 const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
@@ -16,6 +17,14 @@ function query() {
   nwr["leisure"="playground"](${b});
   nwr["amenity"="cafe"](${b});
   nwr["amenity"="pharmacy"](${b});
+  nwr["amenity"~"^(casino|gambling)$"](${b});
+  nwr["leisure"="adult_gaming_centre"](${b});
+  nwr["amenity"="fast_food"]["brand"~"McDonald",i](${b});
+  nwr["amenity"="fast_food"]["name"~"McDonald",i](${b});
+  nwr["shop"="mall"](${b});
+  nwr["leisure"="stadium"](${b});
+  nwr["shop"]["brand"~"^LEGO",i](${b});
+  nwr["shop"]["name"~"^LEGO",i](${b});
 );
 out center tags;`;
 }
@@ -32,14 +41,22 @@ function near(a, b) {
 }
 
 function parse(json) {
-  const out = { oepnv: [], gym: [], spielplatz: [], cafe: [], apotheke: [] };
+  const out = { oepnv: [], gym: [], spielplatz: [], cafe: [], apotheke: [], 'x-casino': [], 'x-mcd': [], 'x-mall': [], 'x-stadion': [], 'x-lego': [] };
+  const seen = new Set();
   for (const el of json.elements || []) {
     const lat = el.lat ?? (el.center && el.center.lat);
     const lng = el.lon ?? (el.center && el.center.lon);
     if (typeof lat !== 'number') continue;
     const t = el.tags || {};
     const name = t.name || '';
-    if (t.leisure === 'fitness_centre') out.gym.push([lat, lng, name || 'Gym']);
+    /* nwr kann dasselbe Objekt ueber zwei Abfragen liefern */
+    const uid = el.type + el.id; if (seen.has(uid)) continue; seen.add(uid);
+    if (t.amenity === 'casino' || t.amenity === 'gambling' || t.leisure === 'adult_gaming_centre') out['x-casino'].push([lat, lng, name || (t.amenity === 'casino' ? 'Casino' : 'Spielhalle')]);
+    else if (t.amenity === 'fast_food' && /mcdonald/i.test((t.brand || '') + ' ' + name)) out['x-mcd'].push([lat, lng, name || "McDonald's"]);
+    else if (t.shop === 'mall') out['x-mall'].push([lat, lng, name || 'Einkaufszentrum']);
+    else if (t.leisure === 'stadium') out['x-stadion'].push([lat, lng, name || 'Stadion']);
+    else if (t.shop && /^lego/i.test(t.brand || name)) out['x-lego'].push([lat, lng, name || 'LEGO']);
+    else if (t.leisure === 'fitness_centre') out.gym.push([lat, lng, name || 'Gym']);
     else if (t.leisure === 'playground') out.spielplatz.push([lat, lng, name || 'Spielplatz']);
     else if (t.amenity === 'cafe') out.cafe.push([lat, lng, name || 'Café']);
     else if (t.amenity === 'pharmacy') out.apotheke.push([lat, lng, name || 'Apotheke']);

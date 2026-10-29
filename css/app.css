@@ -281,6 +281,7 @@ body.side-drag { user-select: none; cursor: col-resize; }
 .chip-hot { background: var(--bone); color: var(--ink); border: 2px solid var(--ink); outline: 2px solid var(--bone); font-size: 12px; padding: 3px 6px; }
 .chip-sm { font-size: 9px; padding: 1px 3px; border-width: 1px; }
 .chip-gym { background: var(--bone); }
+.chip-x { background: var(--bone); color: var(--ink); border: 1px dashed var(--ink); font-size: 10px; padding: 2px 4px; }
 .chip-play { background: var(--ink); color: var(--bone); border-color: var(--bone); }
 .chip-cafe { background: var(--ash); color: var(--ink); }
 .chip-apo { background: var(--ink); color: var(--ash); border-color: var(--ash); }

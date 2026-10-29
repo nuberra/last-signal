@@ -15,7 +15,7 @@ const PREF_KEY = 'ls-hunter-prefs-v2';
 const STALE_MIN = 30;
 const root = $('#root');
 
-const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: false, zeichnungen: false, jaeger: true, halte: true };
+const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, 'x-casino': true, 'x-mcd': true, 'x-mall': true, 'x-stadion': true, 'x-lego': true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: false, zeichnungen: false, jaeger: true, halte: true };
 let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false, focus: 'all', sideW: 440, sideOff: false };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
@@ -309,7 +309,22 @@ const mapColor = (id) => { const c = playerColor(id); return c.toUpperCase() ===
 
 const taskCode = (id) => id.replace(/^t/, '');
 const poiDone = (it) => it.tasks.length > 0 && it.tasks.every(isDone);
-const openPois = () => allPois().filter((p) => !poiDone(p));
+/* Weitere Aufgaben-Orte aus OpenStreetMap (Ebenen x-...). Liegt ein fester Ort mit derselben
+   Aufgabe naeher als 150 m, ist es derselbe und wird nicht doppelt gezaehlt. */
+function livePois() {
+  const o = state.osm; if (!o) return [];
+  const fixed = allPois();
+  const out = [];
+  for (const l of LIVE_LAYERS) {
+    if (!l.id.startsWith('x-')) continue;
+    for (const [lat, lng, name] of o[l.id] || []) {
+      if (fixed.some((f) => f.tasks.some((t) => l.tasks.includes(t)) && distanceM(f, { lat, lng }) < 150)) continue;
+      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true });
+    }
+  }
+  return out;
+}
+const openPois = () => [...allPois(), ...livePois()].filter((p) => !poiDone(p));
 
 function sqIcon(size, fill, border, cls = '') {
   return L.divIcon({
@@ -480,6 +495,12 @@ function buildLive() {
     liveGroups.oepnv.addLayer(m);
   }
   const dot = { gym: 'chip-gym', spielplatz: 'chip-play', cafe: 'chip-cafe', apotheke: 'chip-apo' };
+  for (const p of livePois()) {
+    const meta = LIVE_LAYERS.find((l) => l.id === p.cat);
+    const m = L.marker([p.lat, p.lng], { icon: chipIcon(meta.tag, 'chip-x' + (poiDone(p) ? ' chip-old' : '')), zIndexOffset: 200 });
+    m.bindTooltip(p.name + ' · Aufgabe ' + p.tasks.map(taskCode).join('/'), { className: 'ls-tip', direction: 'top', offset: [0, -8] });
+    liveGroups[p.cat].addLayer(m);
+  }
   for (const id of ['gym', 'spielplatz', 'cafe', 'apotheke']) {
     const meta = LIVE_LAYERS.find((l) => l.id === id);
     for (const p of o[id] || []) {
