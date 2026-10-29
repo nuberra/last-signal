@@ -103,18 +103,27 @@ export const POI_CATEGORIES = [
 export const BBOX = [48.690, 9.030, 48.870, 9.320];
 export const LIVE_LAYERS = [
   { id: 'oepnv', label: 'S-Bahn / Stadtbahn', tag: 'S/U', minZoom: 12, tasks: [] },
-  { id: 'x-casino', label: 'Casinos und Spielhallen', tag: 'SLOT', minZoom: 12, tasks: ['t15'], alarm: true, radius: 300 },
-  { id: 'x-mcd', label: "Alle McDonald's", tag: 'MCD', minZoom: 12, tasks: ['t16'], alarm: true, radius: 300 },
-  { id: 'x-mall', label: 'Alle Einkaufszentren', tag: 'MALL', minZoom: 12, tasks: ['t24'], alarm: true, radius: 300 },
-  { id: 'x-stadion', label: 'Alle Stadien', tag: 'STADION', minZoom: 12, tasks: ['t05'], alarm: true, radius: 300 },
-  { id: 'x-lego', label: 'Alle LEGO-Läden', tag: 'LEGO', minZoom: 12, tasks: ['t23'], alarm: true, radius: 300 },
-  { id: 'gym', label: 'Gyms', tag: 'GYM', minZoom: 13, tasks: ['t19'], alarm: true, radius: 100, dense: true },
-  { id: 'spielplatz', label: 'Spielplätze', tag: 'SPIEL', minZoom: 14, tasks: ['t20'], alarm: true, radius: 50, dense: true },
-  { id: 'cafe', label: 'Cafés', tag: 'CAFE', minZoom: 15, tasks: ['t17', 't18'], alarm: true, radius: 50, dense: true },
-  { id: 'apotheke', label: 'Apotheken', tag: 'APO', minZoom: 15, tasks: ['t24'], alarm: true, radius: 50, dense: true },
+  { id: 'x-casino', label: 'Casinos und Spielhallen', tag: 'SLOT', minZoom: 12, tasks: ['t15'], alarm: true, radius: 300, radiusCity: 100 },
+  { id: 'x-mcd', label: "Alle McDonald's", tag: 'MCD', minZoom: 12, tasks: ['t16'], alarm: true, radius: 300, radiusCity: 100 },
+  { id: 'x-mall', label: 'Alle Einkaufszentren', tag: 'MALL', minZoom: 12, tasks: ['t24'], alarm: true, radius: 300, radiusCity: 100 },
+  { id: 'x-stadion', label: 'Alle Stadien', tag: 'STADION', minZoom: 12, tasks: ['t05'], alarm: true, radius: 300, radiusCity: 100 },
+  { id: 'x-lego', label: 'Alle LEGO-Läden', tag: 'LEGO', minZoom: 12, tasks: ['t23'], alarm: true, radius: 300, radiusCity: 100 },
+  { id: 'gym', label: 'Gyms', tag: 'GYM', minZoom: 13, tasks: ['t19'], alarm: true, radius: 100, radiusCity: 50, dense: true },
+  { id: 'spielplatz', label: 'Spielplätze', tag: 'SPIEL', minZoom: 14, tasks: ['t20'], alarm: true, radius: 50, radiusCity: 30, dense: true },
+  { id: 'cafe', label: 'Cafés', tag: 'CAFE', minZoom: 15, tasks: ['t17', 't18'], alarm: true, radius: 50, radiusCity: 30, dense: true },
+  { id: 'apotheke', label: 'Apotheken', tag: 'APO', minZoom: 15, tasks: ['t24'], alarm: true, radius: 50, radiusCity: 30, dense: true },
 ];
 
 export const ALERT_RADIUS_M = 500;
+
+/* Innenstadt (1.5 km um den Schlossplatz): dort liegt alles dicht beieinander, darum kleinere
+   Alarm-Umkreise. Feste Orte 150 m statt 500 m, OSM-Orte radiusCity statt radius. */
+export const ALERT_RADIUS_CITY_M = 150;
+export const CITY_CENTER = { lat: 48.7784, lng: 9.1800 };
+export const CITY_RADIUS_M = 1500;
+export const inCity = (p) => Math.hypot((p.lat - CITY_CENTER.lat) * 111320, (p.lng - CITY_CENTER.lng) * 73300) <= CITY_RADIUS_M;
+/* Alarm-Umkreis eines Orts; layer = Ebene aus LIVE_LAYERS bei OSM-Orten, sonst fester Ort */
+export const alarmRadius = (p, layer) => (layer ? (inCity(p) ? layer.radiusCity : layer.radius) : (inCity(p) ? ALERT_RADIUS_CITY_M : ALERT_RADIUS_M));
 
 /* Spielzeitraum: fuer Funkstille-Alarm und "letzte Chance" der Aufgaben. */
 export const GAME_START = '2026-10-30T09:00:00+01:00';

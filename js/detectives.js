@@ -1,7 +1,7 @@
 /* LAST SIGNAL — Ansicht der Jäger. Karte, Aufgaben, Export. */
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
-import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN } from './data.js';
+import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, ALERT_RADIUS_CITY_M, alarmRadius, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN } from './data.js';
 import { loadOsm, cachedOsm, loadRoutes } from './osm.js';
 import { openState, openText, windowsUntil, stays, walkMin, driveMin, transitMin, guessLines, hm, DAYS } from './hunt.js';
 import {
@@ -321,7 +321,7 @@ function livePois() {
     if (!l.alarm) continue;
     for (const [lat, lng, name] of o[l.id] || []) {
       if (fixed.some((f) => f.tasks.some((t) => l.tasks.includes(t)) && distanceM(f, { lat, lng }) < 150)) continue;
-      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true, radius: l.radius, dense: !!l.dense });
+      out.push({ name, lat, lng, tasks: l.tasks, cat: l.id, catLabel: l.label, key: l.id + ':' + name + ':' + lat.toFixed(4), live: true, radius: alarmRadius({ lat, lng }, l), dense: !!l.dense });
     }
   }
   livePoisCache = { o, list: out };
@@ -331,7 +331,7 @@ function livePois() {
 const openPois = () => [...allPois(), ...livePois().filter((p) => !p.dense)].filter((p) => !poiDone(p));
 /* Alarm: feste Orte (sichtbare Ebenen) und alle offenen OSM-Aufgaben-Orte, auch ausgeblendete */
 const alarmPois = () => [...visiblePois(), ...livePois().filter((p) => !poiDone(p))];
-const radiusOf = (p) => p.radius || ALERT_RADIUS_M;
+const radiusOf = (p) => p.radius || alarmRadius(p);
 
 function sqIcon(size, fill, border, cls = '') {
   return L.divIcon({
@@ -456,7 +456,7 @@ function applyLayers() {
       const isHot = hot.has(c.id + ':' + it.name);
       if (!prefs.rings && !isHot) continue;
       L.circle([it.lat, it.lng], {
-        radius: ALERT_RADIUS_M, color: isHot ? '#FF4D0F' : lineColor(), weight: isHot ? 3 : 1.5,
+        radius: radiusOf(it), color: isHot ? '#FF4D0F' : lineColor(), weight: isHot ? 3 : 1.5,
         opacity: isHot ? 0.9 : 0.55, dashArray: isHot ? null : '6 6',
         fill: true, fillColor: isHot ? '#FF4D0F' : lineColor(), fillOpacity: isHot ? 0.07 : 0.04, interactive: false,
       }).addTo(ringGroup);
@@ -600,10 +600,10 @@ function renderLayers() {
   el.innerHTML = `
     <div class="lhead"><span class="label">Ebenen</span><button class="btn small quiet" id="l-close">Zu</button></div>
     <div class="lsub label">Aufgaben-Orte · mit Alarm</div>
-    ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length), 'Alarm ' + ALERT_RADIUS_M + ' M')).join('')}
-    ${LIVE_LAYERS.filter((l) => l.alarm).map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'Alarm ' + l.radius + ' M, auch ausgeblendet · Karte ab Zoom ' + l.minZoom + ' · Aufgabe ' + l.tasks.map(taskCode).join('/'))).join('')}
+    ${POI_CATEGORIES.map((c) => row(c.id, c.label, pad2(c.items.length), 'Alarm ' + ALERT_RADIUS_M + ' M, Innenstadt ' + ALERT_RADIUS_CITY_M + ' M')).join('')}
+    ${LIVE_LAYERS.filter((l) => l.alarm).map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'Alarm ' + l.radius + ' M, Innenstadt ' + l.radiusCity + ' M, auch ausgeblendet · Karte ab Zoom ' + l.minZoom + ' · Aufgabe ' + l.tasks.map(taskCode).join('/'))).join('')}
     <div class="layer-row" data-showall="1"><input type="checkbox" class="check" ${prefs.showAll ? 'checked' : ''} tabindex="-1"><span class="name">Auch erledigte und geschlossene Orte<small>sonst ausgeblendet</small></span></div>
-    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Umkreis ${ALERT_RADIUS_M} M bei allen Orten<small>sonst nur, wenn ein Gejagter drin ist</small></span></div>
+    <div class="layer-row" data-rings="1"><input type="checkbox" class="check" ${prefs.rings ? 'checked' : ''} tabindex="-1"><span class="name">Alarm-Umkreis bei allen festen Orten<small>sonst nur, wenn ein Gejagter drin ist</small></span></div>
     <div class="lsub label">OpenStreetMap${state.osmStatus === 'laedt' ? ' · lädt' : state.osmStatus === 'fehler' ? ' · nicht erreichbar' : ''} · ohne Alarm</div>
     ${LIVE_LAYERS.filter((l) => !l.alarm).map((l) => row(l.id, l.label, o ? String((o[l.id] || []).length) : '-', 'ab Zoom ' + l.minZoom)).join('')}
     <div class="lsub label">Jäger</div>
@@ -907,7 +907,7 @@ function renderCards() {
       <div class="section-head"><h2 class="display d-s">Bandits</h2><span class="label">${seen.length ? 'Letztes Signal ' + timeHM(seen.map((l) => l.created_at).sort().pop()) : 'Noch kein Signal'}</span></div>
       ${cardsHtml(ids.filter(onMap))}
       <div class="section">
-        <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Feste Orte ${ALERT_RADIUS_M} M · weitere 50 bis 300 M</span></div>
+        <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Umkreis je nach Ort 30 bis ${ALERT_RADIUS_M} M</span></div>
         ${state.alarmLog.length ? state.alarmLog.map((a) => `<div class="log-row" data-poi="${esc(a.poi.key)}"><span class="label">${timeHM(a.at)}</span><span class="value" style="font-size:13px">${esc(a.text.toUpperCase())}</span></div>`).join('') : '<div class="label" style="padding:16px 0">Noch kein Alarm</div>'}
       </div>
 `;
