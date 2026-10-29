@@ -441,7 +441,7 @@ async function toggleDone(id, done, cb) {
       if (navigator.vibrate) navigator.vibrate(60);
       const what = task ? 'AUFGABE ' + pad2(task.n) + ' ERLEDIGT' : 'PFLICHTTERMIN ' + pad2(appt.n) + ' ERLEDIGT';
       notifyHunters(what, (task ? task.title : appt.place) + ' · ' + me.name.toUpperCase());
-      /* Bei jeder Abgabe wird der Standort mitgeschickt; der 20-Minuten-Takt startet neu. */
+      /* Bei jeder Abgabe wird der Standort mitgeschickt; der 15-Minuten-Takt startet neu. */
       sendNow('task');
     }
   } catch {

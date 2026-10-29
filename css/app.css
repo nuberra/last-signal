@@ -193,7 +193,10 @@ img, svg, video { display: block; max-width: 100%; }
 @keyframes ls-flash { 0%, 49% { background: var(--bone); } 50%, 100% { background: var(--ash); } }
 
 .sheet { background: var(--ink); border-top: 2px solid var(--bone); max-height: 40dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.sheet-handle { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--ash-26); cursor: pointer; user-select: none; }
+.sheet-handle { position: relative; display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 8px; border-bottom: 1px solid var(--ash-26); cursor: pointer; user-select: none; }
+.sheet-grip { position: absolute; top: 5px; left: 50%; width: 40px; height: 4px; margin-left: -20px; background: var(--ash); }
+#sheet-arrow { color: var(--bone); margin-left: 4px; font-size: 14px; }
+#sheet-sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 12px; }
 .sheet.collapsed .sheet-body { display: none; }
 .sheet-body { padding: 0 16px 16px; }
 .pcard { padding: 12px 0 12px 24px; border-bottom: 1px solid var(--ash-26); position: relative; cursor: pointer; }
@@ -352,8 +355,14 @@ body.desk .drawbar { left: 16px; right: auto; bottom: 16px; }
 .hot-num { background: var(--bone); color: var(--ink); padding: 0 4px; }
 
 /* ---- Zeitregler ---- */
-.replaybar { gap: 12px; }
-.replaybar input[type=range] { flex: 1; min-width: 140px; accent-color: var(--bone); }
+.replaybar { gap: 8px; flex-direction: column; align-items: stretch; }
+.replaybar .rp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replaybar .rp-row > .label:first-child { margin-right: auto; }
+.replaybar .rp-who { flex: 1; min-width: 200px; }
+.replaybar .rp-who .btn.on { background: var(--bone); color: var(--ink); }
+.replaybar .rp-span label { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.replaybar input[type=datetime-local] { background: var(--ink); color: var(--bone); border: 1px solid var(--ash-26); font: 12px var(--font-mono); padding: 6px 4px; color-scheme: dark; width: 100%; min-width: 0; }
+.replaybar input[type=range] { flex: 1; min-width: 120px; accent-color: var(--bone); }
 
 /* ---- Kompass ---- */
 .compass { position: fixed; inset: 0; z-index: 3000; background: var(--ink); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: calc(16px + var(--safe-top)) 16px calc(24px + var(--safe-bottom)); }

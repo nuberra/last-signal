@@ -16,7 +16,7 @@ const STALE_MIN = 30;
 const root = $('#root');
 
 const DEFAULT_LAYERS = { ...Object.fromEntries(POI_CATEGORIES.map((c) => [c.id, true])), oepnv: true, gym: false, spielplatz: false, cafe: false, apotheke: false, fotos: true, notizen: false, zeichnungen: false, jaeger: true, halte: true };
-let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false };
+let prefs = { layers: { ...DEFAULT_LAYERS }, rings: false, reach: true, tiles: 'light', route: 'all', sheet: true, showAll: false, focus: 'all' };
 try { const saved = JSON.parse(localStorage.getItem(PREF_KEY)) || {}; prefs = { ...prefs, ...saved, layers: { ...DEFAULT_LAYERS, ...(saved.layers || {}) } }; } catch { /* Standard */ }
 if (!['light', 'transit'].includes(prefs.tiles)) prefs.tiles = 'light';
 const NAME_KEY = 'ls-hunter-name';
@@ -118,6 +118,7 @@ function renderShell() {
         <div id="map"></div>
         <div class="map-overlay map-top" id="alarms"></div>
         <div class="map-overlay map-tools">
+          <button class="btn" id="b-who"></button>
           <button class="btn" id="b-layers">Ebenen</button>
           <button class="btn" id="b-fit">Alle</button>
           <button class="btn" id="b-me">Ich</button>
@@ -129,7 +130,7 @@ function renderShell() {
         <div class="drawbar replaybar" id="replaybar" hidden></div>
         <div class="map-overlay map-bottom">
           <div class="sheet ${prefs.sheet ? '' : 'collapsed'}" id="sheet">
-            <div class="sheet-handle" id="sheet-handle"><span class="label">Bandits</span><span class="label" id="sheet-sum"></span></div>
+            <div class="sheet-handle" id="sheet-handle"><span class="sheet-grip"></span><span class="label">Prognose <span id="sheet-arrow"></span></span><span class="label" id="sheet-sum"></span></div>
             <div class="sheet-body" id="cards"></div>
           </div>
         </div>
@@ -172,7 +173,10 @@ function renderShell() {
     </div>`;
   root.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => setTab(b.dataset.tab));
   root.querySelectorAll('[data-sub]').forEach((b) => b.onclick = () => setSub(b.dataset.sub));
-  $('#sheet-handle').onclick = () => { prefs.sheet = !prefs.sheet; savePrefs(); $('#sheet').classList.toggle('collapsed', !prefs.sheet); };
+  $('#sheet-handle').onclick = () => setSheet(!prefs.sheet);
+  setSheet(prefs.sheet);
+  $('#b-who').onclick = () => { const o = ['all', ...BANDIT_IDS()]; setFocus(o[(o.indexOf(prefs.focus) + 1) % o.length] || 'all'); };
+  updateWhoBtn();
   $('#b-layers').onclick = () => { const el = $('#layers'); el.hidden = !el.hidden; $('#b-layers').classList.toggle('on', !el.hidden); };
   $('#b-fit').onclick = fitAll;
   $('#b-me').onclick = toggleMe;
@@ -581,7 +585,7 @@ function motion(id) {
 
 function drawPlayers() {
   if (!map) return;
-  const since = routeSince();
+  const since = state.replayT ? state.replayFrom || 0 : routeSince();
   for (const id of BANDIT_IDS()) {
     const color = mapColor(id);
     const pts = visiblePts(id);
@@ -594,6 +598,12 @@ function drawPlayers() {
         dots: L.layerGroup().addTo(map),
         marker: null,
       };
+    }
+    if (!onMap(id)) {
+      pl.route.setLatLngs([]); pl.dots.clearLayers();
+      if (pl.marker) { map.removeLayer(pl.marker); pl.marker = null; }
+      map.removeLayer(pl.reach); map.removeLayer(pl.acc);
+      continue;
     }
     const shown = pts.filter((p) => new Date(p.created_at).getTime() >= since);
     /* Wer stillsteht, erzeugt durch GPS-Zittern viele Punkte nebeneinander. Gezeichnet wird
@@ -635,8 +645,30 @@ function drawPlayers() {
   }
 }
 
+/* Prognose-Feld unten (Handy) auf- und zuklappen */
+function setSheet(open) {
+  prefs.sheet = open; savePrefs();
+  const s = $('#sheet'); if (!s) return;
+  s.classList.toggle('collapsed', !open);
+  $('#sheet-arrow').textContent = open ? '▾' : '▴';
+}
+
+/* Nur einen Gejagten auf der Karte zeigen: 'all' oder eine Spieler-ID */
+const onMap = (id) => !prefs.focus || prefs.focus === 'all' || prefs.focus === id || !BANDIT_IDS().includes(prefs.focus);
+function updateWhoBtn() {
+  const b = $('#b-who'); if (!b) return;
+  const all = !prefs.focus || prefs.focus === 'all' || !BANDIT_IDS().includes(prefs.focus);
+  b.textContent = all ? (BANDIT_IDS().length > 2 ? 'Alle' : 'Beide') : 'Nur ' + playerName(state.players, prefs.focus);
+  b.classList.toggle('on', !all);
+  document.querySelectorAll('[data-rp-who]').forEach((x) => x.classList.toggle('on', x.dataset.rpWho === (all ? 'all' : prefs.focus)));
+}
+function setFocus(id) {
+  prefs.focus = id; savePrefs(); updateWhoBtn();
+  drawPlayers(); drawStays(); drawLineGuess(); drawProofs(); renderCards();
+}
+
 function fitAll() {
-  const pts = BANDIT_IDS().map(latest).filter(Boolean).map((l) => [l.lat, l.lng]);
+  const pts = BANDIT_IDS().filter(onMap).map(latest).filter(Boolean).map((l) => [l.lat, l.lng]);
   if (state.me) pts.push([state.me.lat, state.me.lng]);
   const car = carPos(); if (car) pts.push([car.lat, car.lng]);
   if (!pts.length) { map.setView([48.7784, 9.1800], 13); return; }
@@ -789,13 +821,13 @@ function renderCards() {
   const ids = BANDIT_IDS();
   const seen = ids.map(latest).filter(Boolean);
   $('#sheet-sum').textContent = ids.map((id) => { const l = latest(id); return playerName(state.players, id) + ' ' + (l ? timeHM(l.created_at) : '--:--'); }).join(' · ');
-  el.innerHTML = cardsHtml(ids);
+  el.innerHTML = cardsHtml(ids.filter(onMap));
   bindCards(el);
   const side = $('#bandits-wrap');
   if (side && state.desk && state.tab === 'bandits') {
     side.innerHTML = `
       <div class="section-head"><h2 class="display d-s">Bandits</h2><span class="label">${seen.length ? 'Letztes Signal ' + timeHM(seen.map((l) => l.created_at).sort().pop()) : 'Noch kein Signal'}</span></div>
-      ${cardsHtml(ids)}
+      ${cardsHtml(ids.filter(onMap))}
       <div class="section">
         <div class="section-head"><h2 class="display d-s">Alarme</h2><span class="label">Umkreis ${ALERT_RADIUS_M} M</span></div>
         ${state.alarmLog.length ? state.alarmLog.map((a) => `<div class="log-row" data-poi="${esc(a.poi.key)}"><span class="label">${timeHM(a.at)}</span><span class="value" style="font-size:13px">${esc(a.text.toUpperCase())}</span></div>`).join('') : '<div class="label" style="padding:16px 0">Noch kein Alarm</div>'}
@@ -1117,7 +1149,7 @@ function setDrawing(on) {
   const c = map.getContainer();
   c.classList.toggle('drawing', on);
   if (on) {
-    if (!state.desk) { prefs.sheet = false; $('#sheet').classList.add('collapsed'); }
+    if (!state.desk) setSheet(false);
     map.dragging.disable(); map.touchZoom.disable(); map.doubleClickZoom.disable(); map.boxZoom.disable();
     bar.innerHTML = `<span class="label">Zeichnen</span>${DRAW_COLORS.map(([col, n]) => `<button class="swatch ${state.drawColor === col ? 'on' : ''}" data-col="${col}" title="${n}" style="background:${col}"></button>`).join('')}
       <button class="btn small" id="draw-undo">Zurück</button><button class="btn small solid" id="draw-done">Fertig</button>`;
@@ -1295,7 +1327,7 @@ function drawProofs() {
   if (!map) return;
   const keep = new Set();
   for (const p of state.proofs) {
-    if (p.lat == null || !prefs.layers.fotos) continue;
+    if (p.lat == null || !prefs.layers.fotos || !onMap(p.uploaded_by)) continue;
     const key = String(p.id); keep.add(key);
     if (proofMarkers[key]) continue;
     const t = TASKS.find((x) => x.id === p.task_id) || APPOINTMENTS.find((x) => x.id === p.task_id);
@@ -1446,7 +1478,7 @@ function drawStays() {
   if (!stayLayer) stayLayer = L.layerGroup().addTo(map);
   stayLayer.clearLayers();
   if (!prefs.layers.halte) return;
-  for (const id of BANDIT_IDS()) {
+  for (const id of BANDIT_IDS().filter(onMap)) {
     for (const s of stays(visiblePts(id))) {
       const m = L.marker([s.lat, s.lng], { icon: chipIcon(`HALT ${s.min}'`, 'chip-stay', `border-color:${mapColor(id)}`), zIndexOffset: 500 });
       const np = nearestPoiAny(s);
@@ -1464,7 +1496,11 @@ function nearestPoiAny(pt) {
 
 /* Zeitregler: state.replayT = null heisst live. Sonst werden Route und Position bis zu diesem
    Zeitpunkt gezeigt. */
-const visiblePts = (id) => { const a = state.locs[id] || []; return state.replayT ? a.filter((p) => new Date(p.created_at).getTime() <= state.replayT) : a; };
+const visiblePts = (id) => {
+  const a = state.locs[id] || [];
+  if (!state.replayT) return a;
+  return a.filter((p) => { const t = new Date(p.created_at).getTime(); return t <= state.replayT && t >= (state.replayFrom || 0); });
+};
 const shownLatest = (id) => { const a = visiblePts(id); return a.length ? a[a.length - 1] : null; };
 
 function replayRange() {
@@ -1473,18 +1509,48 @@ function replayRange() {
   return min === Infinity ? null : [min, Date.now()];
 }
 
+/* datetime-local braucht Ortszeit im Format JJJJ-MM-TTTHH:MM */
+const toInput = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+
 function toggleReplay() {
   const bar = $('#replaybar');
-  if (!bar.hidden) { stopReplay(); bar.hidden = true; $('#b-time').classList.remove('on'); state.replayT = null; drawPlayers(); drawStays(); return; }
+  if (!bar.hidden) { stopReplay(); bar.hidden = true; $('#b-time').classList.remove('on'); state.replayT = null; state.replayFrom = null; drawPlayers(); drawStays(); drawLineGuess(); return; }
   const r = replayRange(); if (!r) return toast('Verlauf', 'Noch keine Signale');
   bar.hidden = false; $('#b-time').classList.add('on');
-  if (!state.desk) { prefs.sheet = false; $('#sheet').classList.add('collapsed'); }
+  if (!state.desk) setSheet(false);
+  /* Standard: die letzten 3 Stunden */
+  state.replayFrom = Math.max(r[0], r[1] - 3 * 3600e3);
   state.replayT = r[1];
-  bar.innerHTML = `<button class="btn small" id="rp-play">Abspielen</button>
-    <input type="range" id="rp-range" min="${r[0]}" max="${r[1]}" step="60000" value="${r[1]}">
-    <span class="label num" id="rp-time"></span><button class="btn small solid" id="rp-live">Live</button>`;
-  const range = $('#rp-range');
-  const apply = () => { state.replayT = Number(range.value); $('#rp-time').textContent = new Date(state.replayT).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase(); drawPlayers(); drawStays(); };
+  bar.innerHTML = `
+    <div class="rp-row"><span class="label">Verlauf</span>
+      <div class="seg rp-who"><button class="btn" data-rp-who="all">${BANDIT_IDS().length > 2 ? 'Alle' : 'Beide'}</button>${BANDIT_IDS().map((id) => `<button class="btn" data-rp-who="${id}">${esc(playerName(state.players, id))}</button>`).join('')}</div></div>
+    <div class="rp-row rp-span">
+      <label class="label">Von <input type="datetime-local" id="rp-from"></label>
+      <label class="label">Bis <input type="datetime-local" id="rp-to"></label>
+    </div>
+    <div class="rp-row rp-quick">${[['1', '1 H'], ['3', '3 H'], ['today', 'Heute'], ['all', 'Alles']].map(([k, t]) => `<button class="btn small quiet" data-rp-q="${k}">${t}</button>`).join('')}</div>
+    <div class="rp-row"><button class="btn small" id="rp-play">Abspielen</button>
+      <input type="range" id="rp-range" step="60000">
+      <span class="label num" id="rp-time"></span><button class="btn small solid" id="rp-live">Live</button></div>`;
+  const range = $('#rp-range'), from = $('#rp-from'), to = $('#rp-to');
+  const redraw = () => { drawPlayers(); drawStays(); drawLineGuess(); };
+  const apply = () => { state.replayT = Number(range.value); $('#rp-time').textContent = new Date(state.replayT).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase(); redraw(); };
+  /* Zeitspanne setzen: Regler laeuft von "Von" bis "Bis" und steht am Ende */
+  const setSpan = (a, b) => {
+    a = Math.max(r[0] - 60000, a); b = Math.min(Date.now(), Math.max(a + 60000, b));
+    state.replayFrom = a; from.value = toInput(a); to.value = toInput(b);
+    range.min = a; range.max = b; range.value = b; stopReplay(); apply();
+  };
+  from.onchange = () => { const t = new Date(from.value).getTime(); if (t) setSpan(t, Number(range.max)); };
+  to.onchange = () => { const t = new Date(to.value).getTime(); if (t) setSpan(state.replayFrom, t); };
+  bar.querySelectorAll('[data-rp-q]').forEach((x) => x.onclick = () => {
+    const now = Date.now(), k = x.dataset.rpQ;
+    if (k === 'all') setSpan(r[0], now);
+    else if (k === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); setSpan(d.getTime(), now); }
+    else setSpan(now - Number(k) * 3600e3, now);
+  });
+  bar.querySelectorAll('[data-rp-who]').forEach((x) => x.onclick = () => setFocus(x.dataset.rpWho));
+  updateWhoBtn();
   range.oninput = () => { stopReplay(); apply(); };
   $('#rp-live').onclick = toggleReplay;
   $('#rp-play').onclick = () => {
@@ -1498,7 +1564,7 @@ function toggleReplay() {
       if (Number(range.value) >= Number(range.max)) stopReplay();
     }, 250);
   };
-  apply();
+  setSpan(state.replayFrom, r[1]);
 }
 function stopReplay() { clearInterval(state.replayTimer); state.replayTimer = null; const b = $('#rp-play'); if (b) b.textContent = 'Abspielen'; }
 
@@ -1518,7 +1584,7 @@ function drawLineGuess() {
   if (!lineLayer) lineLayer = L.layerGroup().addTo(map);
   lineLayer.clearLayers();
   if (state.replayT) return;
-  for (const id of BANDIT_IDS()) {
+  for (const id of BANDIT_IDS().filter(onMap)) {
     const g = lineGuesses(id)[0]; if (!g) continue;
     const l = latest(id); if (!l || ageMin(l) > 45) continue;
     L.polyline([[l.lat, l.lng], ...g.next.map((s) => [s.lat, s.lng])], { color: mapColor(id), weight: 2, dashArray: '2 8', opacity: 0.9, interactive: false }).addTo(lineLayer);
@@ -1795,7 +1861,7 @@ function renderExport() {
 /* ===================== Live-Daten ===================== */
 
 /* ---- Fairness: Freigabe im Takt ----
-   Fuer Gejagte wird zu jedem Taktpunkt (:00, :20, :40) der neueste Punkt davor sichtbar.
+   Fuer Gejagte wird zu jedem Taktpunkt (:00, :15, :30, :45) der neueste Punkt davor sichtbar.
    Punkte aus 'task' (Aufgabe abgehakt), 'manual' (Jetzt senden) und 'test' sofort.
    Der TEST-Kanal laeuft gleich wie die Gejagten; Jaeger/Auto sind nicht betroffen. */
 const REVEAL_MS = (CONFIG.REVEAL_MIN || 0) * 60000;

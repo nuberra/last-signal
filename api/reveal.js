@@ -1,4 +1,4 @@
-/* LAST SIGNAL — Freigabe im Takt. Von Supabase (pg_cron) um :00, :20 und :40 aufgerufen,
+/* LAST SIGNAL — Freigabe im Takt. Von Supabase (pg_cron) um :00, :15, :30 und :45 aufgerufen,
    wirksam nur in der Jagdzeit 09:00-22:00.
    Pro Gejagtem: neuester Punkt bis zum Taktpunkt gegen den Punkt beim vorigen Taktpunkt.
    Gibt es seitdem einen neuen Punkt, geht genau ein Push raus (ALARM oder NEUES SIGNAL). */
