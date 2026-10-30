@@ -11,7 +11,7 @@ export const CONFIG = {
 
   /* Standortversand der Gejagten in Sekunden, solange die Seite offen ist.
      Zusaetzlich wird bei jeder abgehakten Aufgabe sofort gesendet. */
-  LOCATION_INTERVAL_S: 15 * 60,
+  LOCATION_INTERVAL_S: 9 * 60,
 
   /* Die zwei Gejagten, fest vergeben. Beim ersten Start waehlt jedes Handy seinen Namen. */
   BANDITS: [
@@ -21,7 +21,7 @@ export const CONFIG = {
 
   /* Fairness: Jaeger sehen Positionen der Gejagten nur im Takt (Minuten, ab :00).
      Sofort sichtbar bleiben Signale beim Abhaken ('task') und "Jetzt senden" ('manual'). */
-  REVEAL_MIN: 15,
+  REVEAL_MIN: 9,
 
   /* Testkanal fuer OwnTracks (Admin-Handy). Erscheint auf der Jaeger-Karte als TEST,
      loest keinen Funkstille-Alarm aus und wird mit "Alle Daten loeschen" entfernt. */

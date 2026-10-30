@@ -134,6 +134,9 @@ export const GAME_END = '2026-11-01T15:00:00+01:00';
    keinen Push und keine Funkstille; um 09:00 erscheint der neueste Punkt der Nacht.
    Nach Spielende wird nichts mehr freigegeben. */
 export const HUNT_FROM_MIN = 9 * 60;
+/* Taktraster: ab 09:00 alle CONFIG.REVEAL_MIN Minuten (bei 9: 09:00, 09:09, 09:18 ... 21:54).
+   Verankert an Spielbeginn; da 1440 durch 9 (und 15) teilbar ist, liegt jeder Tag um 09:00 im Raster. */
+export const slotStart = (t, ms) => { const a = Date.parse(GAME_START); return a + Math.floor((t - a) / ms) * ms; };
 export const HUNT_TO_MIN = 22 * 60;
 const berlinFmt = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /* Minuten seit Mitternacht in Stuttgart */

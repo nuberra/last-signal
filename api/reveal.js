@@ -1,9 +1,9 @@
-/* LAST SIGNAL — Freigabe im Takt. Von Supabase (pg_cron) um :00, :15, :30 und :45 aufgerufen,
+/* LAST SIGNAL — Freigabe im Takt. Von Supabase (pg_cron) jede Minute aufgerufen (Taktpunkte ab 09:00 alle REVEAL_MIN Minuten),
    wirksam nur in der Jagdzeit 09:00-22:00.
    Pro Gejagtem: neuester Punkt bis zum Taktpunkt gegen den Punkt beim vorigen Taktpunkt.
    Gibt es seitdem einen neuen Punkt, geht genau ein Push raus (ALARM oder NEUES SIGNAL). */
 import { supa, onSignal, REVEAL_MIN } from './_lib.js';
-import { huntOpen } from '../js/data.js';
+import { huntOpen, slotStart } from '../js/data.js';
 import { CONFIG } from '../js/config.js';
 
 const latestUntil = async (id, t) => (await supa('locations?select=lat,lng,created_at,battery,source&player_id=eq.' + id
@@ -12,7 +12,11 @@ const latestUntil = async (id, t) => (await supa('locations?select=lat,lng,creat
 export default async function handler(req, res) {
   if (!REVEAL_MIN) return res.status(200).json({ skipped: 'kein Takt' });
   const ms = REVEAL_MIN * 60000;
-  const slot = Math.floor((Date.now() + 30000) / ms) * ms;   /* Cron darf ein paar Sekunden zu frueh oder spaet sein */
+  /* Cron ruft jede Minute auf; gearbeitet wird nur in der Minute eines Taktpunkts
+     (ab 09:00 alle REVEAL_MIN Minuten). Ein paar Sekunden zu frueh oder spaet sind egal. */
+  const at = Date.now() + 30000;
+  const slot = slotStart(at, ms);
+  if (at - slot >= 60000) return res.status(200).json({ skipped: 'kein Taktpunkt', next: new Date(slot + ms).toISOString() });
   if (!huntOpen(slot)) return res.status(200).json({ skipped: 'ausserhalb der Jagdzeit' });
   /* voriger Taktpunkt in der Jagdzeit (um 09:00 also 22:00 am Vortag) */
   let before = slot - ms;

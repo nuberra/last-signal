@@ -13,9 +13,9 @@ Schreib auf Deutsch in Schweizer Rechtschreibung (ss statt ß). Kurz, klar, hand
 
 # WAS WIR SEHEN (wichtig für deine Einschätzung)
 
-- Die Handys der Gejagten senden laufend per OwnTracks. Wir sehen ihre Position aber nur im Takt um :00, :15, :30 und :45, und nur zwischen 09:00 und 22:00. Angezeigt wird jeweils der neueste Punkt vor diesem Zeitpunkt.
+- Die Handys der Gejagten senden laufend per OwnTracks. Wir sehen ihre Position aber nur alle 9 Minuten (09:00, 09:09, 09:18 … bis 21:54), und nur zwischen 09:00 und 22:00. Angezeigt wird jeweils der neueste Punkt vor diesem Zeitpunkt.
 - Sofort sehen wir die Position, wenn sie eine Aufgabe abhaken (Standort wird mitgeschickt) oder selbst "Jetzt senden" drücken.
-- Die Gejagten kennen diesen Takt. Rechne damit, dass sie sich direkt nach einem Taktpunkt bewegen und in den 15 Minuten bis zum nächsten gut 1 km zu Fuss, 5 bis 7 km mit S-Bahn oder Stadtbahn oder 3 bis 5 km mit Taxi/Uber (inklusive Wartezeit) schaffen.
+- Die Gejagten kennen diesen Takt. Rechne damit, dass sie sich direkt nach einem Taktpunkt bewegen und in den 9 Minuten bis zum nächsten etwa 700 m zu Fuss, 2 bis 4 km mit S-Bahn oder Stadtbahn oder 2 bis 3 km mit Taxi/Uber (inklusive Wartezeit) schaffen.
 - Ein Beweisfoto trägt meist den Ort, an dem es gemacht wurde.
 - Alle Distanzen im Bericht sind Luftlinie. Echte Wege sind etwa 30 bis 40 % länger.
 

@@ -1,7 +1,7 @@
 /* LAST SIGNAL — Ansicht der Jäger. Karte, Aufgaben, Export. */
 import { CONFIG } from './config.js';
 import { store, DEMO } from './store.js';
-import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, ALERT_RADIUS_CITY_M, alarmRadius, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN } from './data.js';
+import { TASKS, APPOINTMENTS, POI_CATEGORIES, LIVE_LAYERS, ALERT_RADIUS_M, ALERT_RADIUS_CITY_M, alarmRadius, GAME_START, GAME_END, huntOpen, localMin, HUNT_FROM_MIN, slotStart } from './data.js';
 import { loadOsm, cachedOsm, loadRoutes } from './osm.js';
 import { openState, openText, windowsUntil, stays, walkMin, driveMin, banditMin, reachM, guessLines, hm, DAYS } from './hunt.js';
 import {
@@ -1996,12 +1996,12 @@ function renderExport() {
 /* ===================== Live-Daten ===================== */
 
 /* ---- Fairness: Freigabe im Takt ----
-   Fuer Gejagte wird zu jedem Taktpunkt (:00, :15, :30, :45) der neueste Punkt davor sichtbar.
+   Fuer Gejagte wird zu jedem Taktpunkt (ab 09:00 alle CONFIG.REVEAL_MIN Minuten) der neueste Punkt davor sichtbar.
    Punkte aus 'task' (Aufgabe abgehakt), 'manual' (Jetzt senden) und 'test' sofort.
    Der TEST-Kanal laeuft gleich wie die Gejagten; Jaeger/Auto sind nicht betroffen. */
 const REVEAL_MS = (CONFIG.REVEAL_MIN || 0) * 60000;
 const IMMEDIATE = new Set(['task', 'manual', 'test']);
-const slotOf = (t) => Math.floor(t / REVEAL_MS) * REVEAL_MS;
+const slotOf = (t) => slotStart(t, REVEAL_MS);
 const isGated = (id) => REVEAL_MS > 0 && (CONFIG.BANDITS.some((b) => b.id === id) || (CONFIG.TEST_TRACKER && id === CONFIG.TEST_TRACKER.id));
 
 /* Naechster Taktpunkt nach t, der in der Jagdzeit (09:00-22:00) liegt */
